@@ -10,6 +10,7 @@ from livekit.agents import AgentServer, JobContext
 from livekit.agents.stt import SpeechEventType
 from livekit.plugins import deepgram
 
+from narrator.answer import write_answer
 from narrator.audio import play, publish_voice
 from narrator.render import stream_text
 from narrator.content import load_story, load_voice
@@ -20,13 +21,22 @@ logger = logging.getLogger("narrator")
 server = AgentServer(num_idle_processes=1)
 
 
-async def transcribe(track: rtc.Track) -> None:
+async def transcribe(
+    track: rtc.Track, playing: asyncio.Event, questions: asyncio.Queue[str]
+) -> None:
     stream = deepgram.STT().stream()
 
     async def read_transcripts() -> None:
         async for event in stream:
-            if event.type == SpeechEventType.FINAL_TRANSCRIPT:
-                logger.info(f"heard {event.alternatives[0].text!r}")
+            if not event.alternatives or not event.alternatives[0].text:
+                continue
+            text = event.alternatives[0].text
+            if event.type == SpeechEventType.INTERIM_TRANSCRIPT and playing.is_set():
+                playing.clear()
+                logger.info("narration stopped")
+            elif event.type == SpeechEventType.FINAL_TRANSCRIPT:
+                logger.info(f"heard {text!r}")
+                questions.put_nowait(text)
 
     reader = asyncio.create_task(read_transcripts())
     async for audio in rtc.AudioStream(track):
@@ -37,11 +47,13 @@ async def transcribe(track: rtc.Track) -> None:
 
 @server.rtc_session()
 async def entrypoint(ctx: JobContext) -> None:
+    playing = asyncio.Event()
+    questions: asyncio.Queue[str] = asyncio.Queue()
     listening: list[asyncio.Task] = []
 
     @ctx.room.on("track_subscribed")
     def on_track(track: rtc.Track, *_: object) -> None:
-        listening.append(asyncio.create_task(transcribe(track)))
+        listening.append(asyncio.create_task(transcribe(track, playing, questions)))
 
     await ctx.connect()
     source = await publish_voice(ctx)
@@ -55,7 +67,22 @@ async def entrypoint(ctx: JobContext) -> None:
         f"listener={listener.identity} story={story['title']!r} voice={voice['name']}"
     )
 
-    await play(source, stream_text(story["script"][0], voice["elevenLabsId"]))
+    paragraph = story["script"][0]
+    eleven_id = voice["elevenLabsId"]
+
+    while True:
+        playing.set()
+        await play(source, stream_text(paragraph, eleven_id), playing)
+        if playing.is_set():
+            break
+
+        question = await questions.get()
+        answer = await write_answer(story["title"], paragraph, question)
+        logger.info(f"answering {answer!r}")
+
+        playing.set()
+        await play(source, stream_text(answer, eleven_id), playing)
+
     logger.info("paragraph finished")
 
 
