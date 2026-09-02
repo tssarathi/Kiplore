@@ -33,9 +33,13 @@ export default function PlayButton({
       document.body.appendChild(track.attach());
       setStatus("Narrator is speaking");
     });
-
+    room.on(RoomEvent.TrackUnsubscribed, (track) => {
+      track.detach().forEach((element) => element.remove());
+    });
     await room.connect(url, token);
-    setStatus("Connected, waiting for the narrator");
+    await room
+      .startAudio()
+      .catch(() => setStatus("Sound is blocked in this browser"));
   }
 
   return (
