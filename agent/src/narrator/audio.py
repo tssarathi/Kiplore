@@ -10,9 +10,11 @@ from narrator.config import (
     CHUNK_SECONDS,
     FRAME_SAMPLES,
     NUM_CHANNELS,
+    PAUSE_FADE_SECONDS,
     SAMPLE_RATE,
     SOURCE_QUEUE_MS,
 )
+from narrator.envelope import GainRamp, scale
 from narrator.player import Player
 
 FRAME_BYTES = FRAME_SAMPLES * 2
@@ -43,16 +45,21 @@ async def fill(player: Player, chunks: AsyncIterator[bytes]) -> None:
 
 
 async def play(
-    source: rtc.AudioSource, player: Player, playing: asyncio.Event
+    source: rtc.AudioSource, player: Player, playing: asyncio.Event, ramp: GainRamp
 ) -> None:
-    while playing.is_set():
+    while True:
+        if not playing.is_set():
+            if ramp.gain == 0.0:
+                return
+            if ramp.target != 0.0:
+                ramp.set(0.0, PAUSE_FADE_SECONDS)
         pcm = player.read(FRAME_BYTES)
         if pcm is None:
             if player.finished:
                 return
             await asyncio.sleep(CHUNK_SECONDS)
             continue
-        await source.capture_frame(frame(pcm))
+        await source.capture_frame(frame(scale(pcm, ramp.step(CHUNK_SECONDS))))
 
 
 async def speak(source: rtc.AudioSource, chunks: AsyncIterator[bytes]) -> None:

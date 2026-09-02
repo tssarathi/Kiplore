@@ -12,8 +12,10 @@ from livekit.plugins import deepgram
 
 from narrator.answer import write_answer
 from narrator.audio import discard_queued, fill, play, publish_voice, speak
+from narrator.envelope import GainRamp
 from narrator.player import Player
 from narrator.render import stream_text
+from narrator.config import RESUME_FADE_FROM, RESUME_FADE_SECONDS
 from narrator.content import load_story, load_voice
 
 load_dotenv()
@@ -72,11 +74,12 @@ async def entrypoint(ctx: JobContext) -> None:
     eleven_id = voice["elevenLabsId"]
 
     player = Player()
+    ramp = GainRamp()
     producer = asyncio.create_task(fill(player, stream_text(paragraph, eleven_id)))
 
     while True:
         playing.set()
-        await play(source, player, playing)
+        await play(source, player, playing, ramp)
         if playing.is_set():
             break
         logger.info(f"rewound {discard_queued(source, player):.2f}s of queued audio")
@@ -85,6 +88,9 @@ async def entrypoint(ctx: JobContext) -> None:
         answer = await write_answer(story["title"], paragraph, question)
         logger.info(f"answering {answer!r}")
         await speak(source, stream_text(answer, eleven_id))
+
+        ramp.snap(RESUME_FADE_FROM)
+        ramp.set(1.0, RESUME_FADE_SECONDS)
 
     await producer
     logger.info("paragraph finished")
