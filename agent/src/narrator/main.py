@@ -11,7 +11,8 @@ from livekit.agents.stt import SpeechEventType
 from livekit.plugins import deepgram
 
 from narrator.answer import write_answer
-from narrator.audio import play, publish_voice
+from narrator.audio import fill, play, publish_voice, speak
+from narrator.player import Player
 from narrator.render import stream_text
 from narrator.content import load_story, load_voice
 
@@ -70,19 +71,21 @@ async def entrypoint(ctx: JobContext) -> None:
     paragraph = story["script"][0]
     eleven_id = voice["elevenLabsId"]
 
+    player = Player()
+    producer = asyncio.create_task(fill(player, stream_text(paragraph, eleven_id)))
+
     while True:
         playing.set()
-        await play(source, stream_text(paragraph, eleven_id), playing)
+        await play(source, player, playing)
         if playing.is_set():
             break
 
         question = await questions.get()
         answer = await write_answer(story["title"], paragraph, question)
         logger.info(f"answering {answer!r}")
+        await speak(source, stream_text(answer, eleven_id))
 
-        playing.set()
-        await play(source, stream_text(answer, eleven_id), playing)
-
+    await producer
     logger.info("paragraph finished")
 
 
