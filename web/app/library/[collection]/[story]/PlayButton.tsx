@@ -1,7 +1,7 @@
 "use client";
 
 import { Room, RoomEvent } from "livekit-client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export default function PlayButton({
   collection,
@@ -14,6 +14,8 @@ export default function PlayButton({
 }) {
   const [status, setStatus] = useState("Choose a voice");
   const room = useRef<Room | null>(null);
+
+  useEffect(() => () => void room.current?.disconnect(), []);
 
   async function play(voiceId: string) {
     setStatus("Connecting");

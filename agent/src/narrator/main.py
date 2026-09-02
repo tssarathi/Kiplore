@@ -114,6 +114,7 @@ async def entrypoint(ctx: JobContext) -> None:
 
     await producer
     logger.info("paragraph finished")
+    await ctx.delete_room()
 
 
 if __name__ == "__main__":
