@@ -14,7 +14,6 @@ from narrator.story.content import load_story
 load_dotenv()
 logger = logging.getLogger("narrator")
 
-# A cold start is half a second of silence after the child has pressed Play.
 server = AgentServer(num_idle_processes=1)
 
 
