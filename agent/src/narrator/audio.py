@@ -11,6 +11,8 @@ from narrator.config import (
     FRAME_SAMPLES,
     NUM_CHANNELS,
     PAUSE_FADE_SECONDS,
+    RESUME_FADE_FROM,
+    RESUME_FADE_SECONDS,
     SAMPLE_RATE,
     SOURCE_QUEUE_MS,
 )
@@ -20,10 +22,14 @@ from narrator.player import Player
 FRAME_BYTES = FRAME_SAMPLES * 2
 
 
+def seconds_to_bytes(seconds: float) -> int:
+    return round(seconds * SAMPLE_RATE) * 2
+
+
 def discard_queued(source: rtc.AudioSource, player: Player) -> float:
     queued = source.queued_duration
     source.clear_queue()
-    player.rewind(round(queued * SAMPLE_RATE) * 2)
+    player.seek(-seconds_to_bytes(queued))
     return queued
 
 
@@ -45,14 +51,25 @@ async def fill(player: Player, chunks: AsyncIterator[bytes]) -> None:
 
 
 async def play(
-    source: rtc.AudioSource, player: Player, playing: asyncio.Event, ramp: GainRamp
+    source: rtc.AudioSource,
+    player: Player,
+    playing: asyncio.Event,
+    paused: asyncio.Event,
+    ramp: GainRamp,
 ) -> None:
     while True:
-        if not playing.is_set():
-            if ramp.gain == 0.0:
+        if not (playing.is_set() and paused.is_set()) and ramp.target != 0.0:
+            ramp.set(0.0, PAUSE_FADE_SECONDS)
+        if ramp.gain == 0.0:
+            if not playing.is_set():
                 return
-            if ramp.target != 0.0:
-                ramp.set(0.0, PAUSE_FADE_SECONDS)
+            discard_queued(source, player)
+            while not paused.is_set() and playing.is_set():
+                await asyncio.sleep(CHUNK_SECONDS)
+            if not playing.is_set():
+                return
+            ramp.snap(RESUME_FADE_FROM)
+            ramp.set(1.0, RESUME_FADE_SECONDS)
         pcm = player.read(FRAME_BYTES)
         if pcm is None:
             if player.finished:

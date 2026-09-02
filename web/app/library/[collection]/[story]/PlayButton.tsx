@@ -1,7 +1,7 @@
 "use client";
 
 import { Room, RoomEvent } from "livekit-client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 export default function PlayButton({
   collection,
@@ -13,6 +13,7 @@ export default function PlayButton({
   voices: { id: string; name: string }[];
 }) {
   const [status, setStatus] = useState("Choose a voice");
+  const room = useRef<Room | null>(null);
 
   async function play(voiceId: string) {
     setStatus("Connecting");
@@ -28,19 +29,26 @@ export default function PlayButton({
     }
     const { token, url } = await response.json();
 
-    const room = new Room();
-    room.on(RoomEvent.TrackSubscribed, (track) => {
+    const joined = new Room();
+    room.current = joined;
+    joined.on(RoomEvent.TrackSubscribed, (track) => {
       document.body.appendChild(track.attach());
       setStatus("Narrator is speaking");
     });
-    room.on(RoomEvent.TrackUnsubscribed, (track) => {
+    joined.on(RoomEvent.TrackUnsubscribed, (track) => {
       track.detach().forEach((element) => element.remove());
     });
-    await room.connect(url, token);
-    await room
+
+    await joined.connect(url, token);
+    await joined
       .startAudio()
       .catch(() => setStatus("Sound is blocked in this browser"));
-    await room.localParticipant.setMicrophoneEnabled(true);
+    await joined.localParticipant.setMicrophoneEnabled(true);
+  }
+
+  function control(action: string, offset = 0) {
+    const message = JSON.stringify({ action, offset });
+    room.current?.localParticipant.publishData(new TextEncoder().encode(message));
   }
 
   return (
@@ -51,6 +59,10 @@ export default function PlayButton({
         </button>
       ))}
       <p>{status}</p>
+      <button onClick={() => control("pause")}>Pause</button>
+      <button onClick={() => control("resume")}>Resume</button>
+      <button onClick={() => control("seek", -10)}>Back 10s</button>
+      <button onClick={() => control("seek", 10)}>Forward 10s</button>
     </div>
   );
 }

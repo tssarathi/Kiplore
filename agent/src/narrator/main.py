@@ -11,12 +11,19 @@ from livekit.agents.stt import SpeechEventType
 from livekit.plugins import deepgram
 
 from narrator.answer import write_answer
-from narrator.audio import discard_queued, fill, play, publish_voice, speak
+from narrator.audio import (
+    discard_queued,
+    fill,
+    play,
+    publish_voice,
+    seconds_to_bytes,
+    speak,
+)
+from narrator.config import RESUME_FADE_FROM, RESUME_FADE_SECONDS
+from narrator.content import load_story, load_voice
 from narrator.envelope import GainRamp
 from narrator.player import Player
 from narrator.render import stream_text
-from narrator.config import RESUME_FADE_FROM, RESUME_FADE_SECONDS
-from narrator.content import load_story, load_voice
 
 load_dotenv()
 logger = logging.getLogger("narrator")
@@ -51,12 +58,26 @@ async def transcribe(
 @server.rtc_session()
 async def entrypoint(ctx: JobContext) -> None:
     playing = asyncio.Event()
+    paused = asyncio.Event()
+    paused.set()
     questions: asyncio.Queue[str] = asyncio.Queue()
     listening: list[asyncio.Task] = []
+    player = Player()
 
     @ctx.room.on("track_subscribed")
     def on_track(track: rtc.Track, *_: object) -> None:
         listening.append(asyncio.create_task(transcribe(track, playing, questions)))
+
+    @ctx.room.on("data_received")
+    def on_control(packet: rtc.DataPacket) -> None:
+        control = json.loads(packet.data)
+        logger.info(f"control {control}")
+        if control["action"] == "pause":
+            paused.clear()
+        elif control["action"] == "resume":
+            paused.set()
+        elif control["action"] == "seek":
+            player.seek(seconds_to_bytes(control["offset"]))
 
     await ctx.connect()
     source = await publish_voice(ctx)
@@ -73,13 +94,12 @@ async def entrypoint(ctx: JobContext) -> None:
     paragraph = story["script"][0]
     eleven_id = voice["elevenLabsId"]
 
-    player = Player()
     ramp = GainRamp()
     producer = asyncio.create_task(fill(player, stream_text(paragraph, eleven_id)))
 
     while True:
         playing.set()
-        await play(source, player, playing, ramp)
+        await play(source, player, playing, paused, ramp)
         if playing.is_set():
             break
         logger.info(f"rewound {discard_queued(source, player):.2f}s of queued audio")
