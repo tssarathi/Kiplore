@@ -27,9 +27,10 @@ export default function PlayButton({
     const { token, url } = await response.json();
 
     const room = new Room();
-    room.on(RoomEvent.ParticipantConnected, (participant) =>
-      setStatus(`Narrator joined: ${participant.identity}`),
-    );
+    room.on(RoomEvent.TrackSubscribed, (track) => {
+      document.body.appendChild(track.attach());
+      setStatus("Narrator is speaking");
+    });
 
     await room.connect(url, token);
     setStatus("Connected, waiting for the narrator");
