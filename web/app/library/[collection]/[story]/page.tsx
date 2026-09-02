@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { getStory } from "@/lib/content";
+import { getStory, getVoices } from "@/lib/content";
 import PlayButton from "./PlayButton";
 
 export default async function StoryPage({
@@ -11,11 +11,17 @@ export default async function StoryPage({
   const found = await getStory(collection, story);
   if (!found) notFound();
 
+  const voices = await getVoices();
+
   return (
     <div>
       <h1>{found.title}</h1>
       <p>{found.blurb}</p>
-      <PlayButton collection={collection} storyId={story} />
+      <PlayButton
+        collection={collection}
+        storyId={story}
+        voices={voices.map(({ id, name }) => ({ id, name }))}
+      />
     </div>
   );
 }

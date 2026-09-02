@@ -6,19 +6,21 @@ import { useState } from "react";
 export default function PlayButton({
   collection,
   storyId,
+  voices,
 }: {
   collection: string;
   storyId: string;
+  voices: { id: string; name: string }[];
 }) {
-  const [status, setStatus] = useState("Ready");
+  const [status, setStatus] = useState("Choose a voice");
 
-  async function play() {
+  async function play(voiceId: string) {
     setStatus("Connecting");
 
     const response = await fetch("/api/session", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ collection, storyId }),
+      body: JSON.stringify({ collection, storyId, voiceId }),
     });
     if (!response.ok) {
       setStatus("Could not start the session");
@@ -38,7 +40,11 @@ export default function PlayButton({
 
   return (
     <div>
-      <button onClick={play}>Play</button>
+      {voices.map((voice) => (
+        <button key={voice.id} onClick={() => play(voice.id)}>
+          {voice.name}
+        </button>
+      ))}
       <p>{status}</p>
     </div>
   );

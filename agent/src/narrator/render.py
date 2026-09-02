@@ -5,17 +5,11 @@ from collections.abc import AsyncIterator
 
 import aiohttp
 
-from narrator.config import (
-    ELEVEN_MODEL,
-    OUTPUT_FORMAT,
-    SEED,
-    VOICE_ID,
-    VOICE_SETTINGS,
-)
+from narrator.config import ELEVEN_MODEL, OUTPUT_FORMAT, SEED, VOICE_SETTINGS
 
 
-async def stream_text(text: str) -> AsyncIterator[bytes]:
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}/stream"
+async def stream_text(text: str, voice_id: str) -> AsyncIterator[bytes]:
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream"
     async with aiohttp.ClientSession() as session:
         async with session.post(
             url,

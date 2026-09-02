@@ -8,7 +8,18 @@ export type Story = {
   script: string[];
 };
 
+export type Voice = {
+  id: string;
+  name: string;
+  elevenLabsId: string;
+};
+
 const LIBRARY_DIR = path.join(process.cwd(), "..", "library");
+
+export async function getVoices(): Promise<Voice[]> {
+  const raw = await readFile(path.join(LIBRARY_DIR, "voices.json"), "utf8");
+  return JSON.parse(raw) as Voice[];
+}
 
 export async function getStory(
   collection: string,

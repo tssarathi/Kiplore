@@ -9,7 +9,7 @@ from livekit.agents import AgentServer, JobContext
 
 from narrator.audio import play, publish_voice
 from narrator.render import stream_text
-from narrator.content import load_story
+from narrator.content import load_story, load_voice
 
 load_dotenv()
 logger = logging.getLogger("narrator")
@@ -25,10 +25,13 @@ async def entrypoint(ctx: JobContext) -> None:
     listener = await ctx.wait_for_participant()
     request = json.loads(listener.metadata)
     story = load_story(request["collection"], request["storyId"])
+    voice = load_voice(request["voiceId"])
 
-    logger.info(f"listener={listener.identity} story={story['title']!r}")
+    logger.info(
+        f"listener={listener.identity} story={story['title']!r} voice={voice['name']}"
+    )
 
-    await play(source, stream_text(story["script"][0]))
+    await play(source, stream_text(story["script"][0], voice["elevenLabsId"]))
     logger.info("paragraph finished")
 
 

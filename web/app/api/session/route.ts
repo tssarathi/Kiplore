@@ -8,13 +8,13 @@ export async function POST(request: Request) {
     return Response.json({ error: "server not configured" }, { status: 500 });
   }
 
-  const { collection, storyId } = await request.json();
+  const { collection, storyId, voiceId } = await request.json();
   const session = crypto.randomUUID().slice(0, 8);
 
   const token = new AccessToken(key, secret, {
     identity: `kid-${session}`,
     ttl: "15m",
-    metadata: JSON.stringify({ collection, storyId }),
+    metadata: JSON.stringify({ collection, storyId, voiceId }),
   });
 
   token.addGrant({
