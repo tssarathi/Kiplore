@@ -1,0 +1,14 @@
+[project]
+name = "narrator"
+version = "0.1.0"
+description = "Kiplore's voice agent: narrates a story into a room and answers in the same voice"
+readme = "README.md"
+authors = [
+    { name = "Sarathi Thirumalai Soundararajan", email = "tssarathi5901@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = []
+
+[build-system]
+requires = ["uv_build>=0.12.8,<0.13.0"]
+build-backend = "uv_build"
