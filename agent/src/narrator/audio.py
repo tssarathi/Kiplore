@@ -6,14 +6,27 @@ from collections.abc import AsyncIterator
 from livekit import rtc
 from livekit.agents import JobContext
 
-from narrator.config import CHUNK_SECONDS, FRAME_SAMPLES, NUM_CHANNELS, SAMPLE_RATE
+from narrator.config import (
+    CHUNK_SECONDS,
+    FRAME_SAMPLES,
+    NUM_CHANNELS,
+    SAMPLE_RATE,
+    SOURCE_QUEUE_MS,
+)
 from narrator.player import Player
 
 FRAME_BYTES = FRAME_SAMPLES * 2
 
 
+def discard_queued(source: rtc.AudioSource, player: Player) -> float:
+    queued = source.queued_duration
+    source.clear_queue()
+    player.rewind(round(queued * SAMPLE_RATE) * 2)
+    return queued
+
+
 async def publish_voice(ctx: JobContext) -> rtc.AudioSource:
-    source = rtc.AudioSource(SAMPLE_RATE, NUM_CHANNELS)
+    source = rtc.AudioSource(SAMPLE_RATE, NUM_CHANNELS, queue_size_ms=SOURCE_QUEUE_MS)
     track = rtc.LocalAudioTrack.create_audio_track("narrator-voice", source)
     await ctx.room.local_participant.publish_track(track)
     return source

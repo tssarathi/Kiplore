@@ -7,4 +7,5 @@ node_modules/
 out/
 .env
 .env.local
-.DS_Storegraphify-out/
+.DS_Store
+graphify-out/

@@ -11,7 +11,7 @@ from livekit.agents.stt import SpeechEventType
 from livekit.plugins import deepgram
 
 from narrator.answer import write_answer
-from narrator.audio import fill, play, publish_voice, speak
+from narrator.audio import discard_queued, fill, play, publish_voice, speak
 from narrator.player import Player
 from narrator.render import stream_text
 from narrator.content import load_story, load_voice
@@ -79,6 +79,7 @@ async def entrypoint(ctx: JobContext) -> None:
         await play(source, player, playing)
         if playing.is_set():
             break
+        logger.info(f"rewound {discard_queued(source, player):.2f}s of queued audio")
 
         question = await questions.get()
         answer = await write_answer(story["title"], paragraph, question)

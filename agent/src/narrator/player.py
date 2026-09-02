@@ -13,6 +13,9 @@ class Player:
     def finish(self) -> None:
         self.finished = True
 
+    def rewind(self, size: int) -> None:
+        self._cursor = max(0, self._cursor - size)
+
     def read(self, size: int) -> bytes | None:
         if len(self._buffer) - self._cursor < size:
             return None
