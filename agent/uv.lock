@@ -881,12 +881,14 @@ name = "narrator"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aiohttp" },
     { name = "livekit-agents" },
     { name = "python-dotenv" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "aiohttp", specifier = ">=3.14.3" },
     { name = "livekit-agents", specifier = ">=1.7.1" },
     { name = "python-dotenv", specifier = ">=1.2.3" },
 ]
