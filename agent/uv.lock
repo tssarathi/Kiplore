@@ -706,6 +706,14 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/20/33/ec05c835192728f55aa571675912d81c01b423f8f24a98273f148c904e63/livekit_agents-1.7.1-py3-none-any.whl", hash = "sha256:f64ce088f22f115faa3b92448d335569b101d9d96fe6481781fd82f06c413b2e", size = 2777164, upload-time = "2026-08-27T03:33:37.048Z" },
 ]
 
+[package.optional-dependencies]
+codecs = [
+    { name = "numpy" },
+]
+deepgram = [
+    { name = "livekit-plugins-deepgram" },
+]
+
 [[package]]
 name = "livekit-api"
 version = "1.2.1"
@@ -759,6 +767,19 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/82/2e/7b4ec0de0e5f1ef4c2f441a3047dda950c11d819fb1804e0a13c6ef68317/livekit_local_inference-0.2.7-cp314-cp314-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:f122e205899c5393ef4a710beedfece7a166649afa5ccbdc3cca61f2df113efa", size = 34835765, upload-time = "2026-08-18T09:47:08.974Z" },
     { url = "https://files.pythonhosted.org/packages/01/c9/5cee5031e9ac2b545f6a68d2442bb02a3a6564f298d91f321448c1b59944/livekit_local_inference-0.2.7-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:7a97bc2932b73f72c5246cb8350cf2cd7d21fc6237053fc7c1ac645352ed0f3f", size = 34876770, upload-time = "2026-08-18T09:47:11.379Z" },
     { url = "https://files.pythonhosted.org/packages/7f/72/c2c956d1797bd944449fd90945ceea5dded222a54b2df8c967c77440298f/livekit_local_inference-0.2.7-cp314-cp314-win_amd64.whl", hash = "sha256:168c2f2dd55ee6dd94fd7caae0ff73e4875e25aa418df819905fd339de1de4cd", size = 34882427, upload-time = "2026-08-18T09:47:13.983Z" },
+]
+
+[[package]]
+name = "livekit-plugins-deepgram"
+version = "1.7.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "livekit-agents", extra = ["codecs"] },
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b3/72/2a10b12accbf88a5b22680377120ad6d0867d2b5ea5b99842b9392703576/livekit_plugins_deepgram-1.7.1.tar.gz", hash = "sha256:3789799b9c9e3de90949257baf1a4b08912c89780822cb261eece632489b3337", size = 24697, upload-time = "2026-08-27T03:34:00.789Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d4/f7/648243ecbd3d8edbd69e60e8edae77349548ef2a45b4a4b2b97abb8c914c/livekit_plugins_deepgram-1.7.1-py3-none-any.whl", hash = "sha256:24e7dd473078d61ebebd621b6d066f399355abadca140e0b9c76f27b68d46df5", size = 31800, upload-time = "2026-08-27T03:33:59.583Z" },
 ]
 
 [[package]]
@@ -882,14 +903,14 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
-    { name = "livekit-agents" },
+    { name = "livekit-agents", extra = ["deepgram"] },
     { name = "python-dotenv" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.14.3" },
-    { name = "livekit-agents", specifier = ">=1.7.1" },
+    { name = "livekit-agents", extras = ["deepgram"], specifier = ">=1.7.1" },
     { name = "python-dotenv", specifier = ">=1.2.3" },
 ]
 

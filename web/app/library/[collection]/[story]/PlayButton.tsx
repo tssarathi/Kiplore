@@ -40,6 +40,7 @@ export default function PlayButton({
     await room
       .startAudio()
       .catch(() => setStatus("Sound is blocked in this browser"));
+    await room.localParticipant.setMicrophoneEnabled(true);
   }
 
   return (
