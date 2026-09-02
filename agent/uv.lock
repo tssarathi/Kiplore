@@ -891,9 +891,6 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.2.3" },
 ]
 
-[package.metadata.requires-dev]
-dev = []
-
 [[package]]
 name = "nest-asyncio"
 version = "1.6.0"

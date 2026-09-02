@@ -9,7 +9,7 @@ from livekit.agents import AgentServer, JobContext
 
 from narrator.audio import play, publish_voice
 from narrator.render import stream_text
-from narrator.story.content import load_story
+from narrator.content import load_story
 
 load_dotenv()
 logger = logging.getLogger("narrator")
