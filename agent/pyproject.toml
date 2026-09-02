@@ -2,7 +2,6 @@
 name = "narrator"
 version = "0.1.0"
 description = "Kiplore's voice agent: narrates a story into a room and answers in the same voice"
-readme = "README.md"
 authors = [
     { name = "Sarathi Thirumalai Soundararajan", email = "tssarathi5901@gmail.com" }
 ]
