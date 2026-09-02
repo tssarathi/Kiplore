@@ -7,13 +7,15 @@ from dotenv import load_dotenv
 from livekit import agents
 from livekit.agents import AgentServer, JobContext
 
-from narrator.audio import play, publish_voice, tone
+from narrator.audio import play, publish_voice
+from narrator.render import stream_text
 from narrator.story.content import load_story
 
 load_dotenv()
 logger = logging.getLogger("narrator")
 
-server = AgentServer()
+# A cold start is half a second of silence after the child has pressed Play.
+server = AgentServer(num_idle_processes=1)
 
 
 @server.rtc_session()
@@ -27,7 +29,8 @@ async def entrypoint(ctx: JobContext) -> None:
 
     logger.info(f"listener={listener.identity} story={story['title']!r}")
 
-    await play(source, tone(2.0))
+    await play(source, stream_text(story["script"][0]))
+    logger.info("paragraph finished")
 
 
 if __name__ == "__main__":

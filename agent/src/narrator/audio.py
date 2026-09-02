@@ -1,7 +1,6 @@
-"""Making sound: generating it, and sending it into the room."""
+"""Sending sound into the room."""
 
-import array
-import math
+from collections.abc import AsyncIterator
 
 from livekit import rtc
 from livekit.agents import JobContext
@@ -16,17 +15,14 @@ async def publish_voice(ctx: JobContext) -> rtc.AudioSource:
     return source
 
 
-async def play(source: rtc.AudioSource, pcm: bytes) -> None:
+async def play(source: rtc.AudioSource, chunks: AsyncIterator[bytes]) -> None:
     frame_bytes = FRAME_SAMPLES * 2
-    for start in range(0, len(pcm) - frame_bytes + 1, frame_bytes):
-        frame = rtc.AudioFrame(
-            pcm[start : start + frame_bytes], SAMPLE_RATE, NUM_CHANNELS, FRAME_SAMPLES
-        )
-        await source.capture_frame(frame)
-
-
-def tone(seconds: float, hz: float = 440.0) -> bytes:
-    samples = array.array("h")
-    for i in range(int(SAMPLE_RATE * seconds)):
-        samples.append(int(10000 * math.sin(2 * math.pi * hz * i / SAMPLE_RATE)))
-    return samples.tobytes()
+    buffer = bytearray()
+    async for chunk in chunks:
+        buffer += chunk
+        while len(buffer) >= frame_bytes:
+            frame = rtc.AudioFrame(
+                bytes(buffer[:frame_bytes]), SAMPLE_RATE, NUM_CHANNELS, FRAME_SAMPLES
+            )
+            del buffer[:frame_bytes]
+            await source.capture_frame(frame)
