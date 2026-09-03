@@ -22,7 +22,8 @@ export default function Narrator({ caption }: { caption: string | null }) {
     null,
   );
   const spoken = newest?.text ?? null;
-  const mine = newest?.participantInfo.identity !== agent?.identity;
+  const mine =
+    newest !== null && newest.participantInfo.identity !== agent?.identity;
   const midSentence =
     mine && newest?.streamInfo.attributes?.["lk.transcription_final"] !== "true";
 
