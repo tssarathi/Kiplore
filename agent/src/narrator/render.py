@@ -79,7 +79,9 @@ def _parse(line: bytes) -> tuple[bytes, list[str], list[float], list[float]]:
         raise RuntimeError("synthesis alignment lengths differ")
     if not all(isinstance(char, str) and len(char) == 1 for char in chars):
         raise RuntimeError("synthesis characters are malformed")
-    if not all(_finite(s) and _finite(e) and e >= s for s, e in zip(starts, ends)):
+    if not all(
+        _finite(s) and _finite(e) and e >= s for s, e in zip(starts, ends, strict=True)
+    ):
         raise RuntimeError("synthesis times are malformed")
     return pcm, chars, starts, ends
 

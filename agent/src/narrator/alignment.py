@@ -44,7 +44,7 @@ def words_from_chars(
     """Group per-character timestamps into {text, start, end} words."""
     words: list[dict] = []
     text, start, end, depth = "", 0.0, 0.0, 0
-    for char, first, last in zip(chars, starts, ends):
+    for char, first, last in zip(chars, starts, ends, strict=True):
         # Tag characters come back timed like any other. Counted in and out rather than
         # matched, because a tag can be split across two streamed events.
         if char == "[":
