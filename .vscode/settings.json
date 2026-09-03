@@ -9,7 +9,8 @@
     "**/graphify-out": true,
     "web/next-env.d.ts": true,
     "web/tsconfig.tsbuildinfo": true,
-    "**/.ruff_cache": true
+    "**/.ruff_cache": true,
+    "**/KMS": true
   },
   "search.exclude": {
     "**/graphify-out": true,
