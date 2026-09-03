@@ -29,6 +29,7 @@ from narrator.envelope import GainRamp
 from narrator.listen import Listener
 from narrator.player import Player
 from narrator.render import Narration, stream_answer
+from narrator.session import Phase, Session
 
 load_dotenv()
 logger = logging.getLogger("narrator")
@@ -66,23 +67,51 @@ async def entrypoint(ctx: JobContext) -> None:
     paused = asyncio.Event()
     paused.set()
     spoke = asyncio.Event()
-    questions: asyncio.Queue[str] = asyncio.Queue()
+    questions: asyncio.Queue[str | None] = asyncio.Queue()
     player = Player()
     ramp = GainRamp()
+    acks: set[asyncio.Task[None]] = set()
+
+    await ctx.connect()
+    source = await publish_voice(ctx)
+    session = Session(source, player, playing, paused, spoke, questions, ramp)
+
+    def publish_ack(seq: int) -> None:
+        payload = json.dumps({"type": "resume-ack", "seq": seq})
+        task = asyncio.create_task(
+            ctx.room.local_participant.publish_data(payload, reliable=True)
+        )
+        acks.add(task)
+        task.add_done_callback(acks.discard)
 
     @ctx.room.on("data_received")
     def on_control(packet: rtc.DataPacket) -> None:
         control = json.loads(packet.data)
         logger.info(f"control {control}")
-        if control["action"] == "pause":
+        action = control["action"]
+        if action == "resume-at":
+            seq = session.report(
+                control["seq"], control["position"], control["paused"]
+            )
+            if seq is not None:
+                publish_ack(seq)
+            return
+        if session.phase is not Phase.ACTIVE:
+            return
+        if action == "pause":
             paused.clear()
-        elif control["action"] == "resume":
+        elif action == "resume":
             paused.set()
-        elif control["action"] == "seek":
+        elif action == "seek":
             player.seek(seconds_to_bytes(control["offset"]))
 
-    await ctx.connect()
-    source = await publish_voice(ctx)
+    @ctx.room.on("participant_disconnected")
+    def on_participant_disconnected(participant: rtc.RemoteParticipant) -> None:
+        session.dropped(participant.disconnect_reason)
+
+    @ctx.room.on("participant_connected")
+    def on_participant_connected(_: rtc.RemoteParticipant) -> None:
+        session.rejoined()
 
     listener = await ctx.wait_for_participant()
     request = json.loads(listener.metadata)
@@ -105,16 +134,16 @@ async def entrypoint(ctx: JobContext) -> None:
 
     try:
         while True:
+            await session.ready()
+            if session.phase is Phase.LEFT:
+                break
             playing.set()
             await play(source, player, playing, paused, ramp)
             if playing.is_set():
                 break
             logger.info(f"rewound {discard_queued(source, player):.2f}s of queued audio")
 
-            while True:
-                question = await questions.get()
-                if not question:
-                    break
+            while question := await questions.get():
                 heard = heard_text(
                     story["script"],
                     narration.segments,
@@ -129,6 +158,8 @@ async def entrypoint(ctx: JobContext) -> None:
                 if replied:
                     break
                 logger.info("answer interrupted")
+            if question is None:
+                continue
 
             await asyncio.sleep(RESUME_BREATH_SECONDS)
             player.seek(
@@ -139,11 +170,15 @@ async def entrypoint(ctx: JobContext) -> None:
             ramp.snap(RESUME_FADE_FROM)
             ramp.set(1.0, RESUME_FADE_SECONDS)
 
-        await producer
-        logger.info("story finished")
+        if session.phase is not Phase.LEFT:
+            await producer
+            logger.info("story finished")
     finally:
+        session.close()
+        producer.cancel()
         broadcaster.cancel()
         await ears.aclose()
+        await asyncio.gather(producer, broadcaster, return_exceptions=True)
         await ctx.delete_room()
 
 

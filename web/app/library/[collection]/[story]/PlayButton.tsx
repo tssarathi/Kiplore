@@ -2,7 +2,13 @@
 
 import { Room, RoomEvent } from "livekit-client";
 import { useEffect, useRef, useState } from "react";
-import { parseStoryState } from "@/lib/storyState";
+import {
+  MAX_RESUME_ATTEMPTS,
+  RESUME_RETRY_BASE_MS,
+  parseServerMessage,
+} from "@/lib/storyState";
+
+type ResumeReport = { seq: number; position: number; paused: boolean };
 
 export default function PlayButton({
   collection,
@@ -15,13 +21,46 @@ export default function PlayButton({
 }) {
   const [status, setStatus] = useState("Choose a voice");
   const [caption, setCaption] = useState<string | null>(null);
+  const [connected, setConnected] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
   const room = useRef<Room | null>(null);
   const lastSeq = useRef(0);
+  const heard = useRef({ position: 0, paused: false });
+  const report = useRef<ResumeReport | null>(null);
+  const reportSeq = useRef(0);
+  const retry = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => () => void room.current?.disconnect(), []);
+  useEffect(
+    () => () => {
+      if (retry.current !== null) clearTimeout(retry.current);
+      void room.current?.disconnect();
+    },
+    [],
+  );
+
+  function send(message: object, reliable = false) {
+    room.current?.localParticipant.publishData(
+      new TextEncoder().encode(JSON.stringify(message)),
+      { reliable },
+    );
+  }
+
+  function sendReport(attempt: number) {
+    if (report.current === null) return;
+    if (attempt >= MAX_RESUME_ATTEMPTS) {
+      report.current = null;
+      return;
+    }
+    send({ action: "resume-at", ...report.current }, true);
+    retry.current = setTimeout(
+      () => sendReport(attempt + 1),
+      RESUME_RETRY_BASE_MS * 2 ** attempt,
+    );
+  }
 
   async function play(voiceId: string) {
     setStatus("Connecting");
+    setConnected(true);
 
     const response = await fetch("/api/session", {
       method: "POST",
@@ -30,6 +69,7 @@ export default function PlayButton({
     });
     if (!response.ok) {
       setStatus("Could not start the session");
+      setConnected(false);
       return;
     }
     const { token, url } = await response.json();
@@ -52,10 +92,34 @@ export default function PlayButton({
       track.detach().forEach((element) => element.remove());
     });
     joined.on(RoomEvent.DataReceived, (payload) => {
-      const state = parseStoryState(payload);
-      if (state === null || state.seq <= lastSeq.current) return;
-      lastSeq.current = state.seq;
-      setCaption(state.caption);
+      const message = parseServerMessage(payload);
+      if (message === null) return;
+      if (message.type === "resume-ack") {
+        if (report.current?.seq !== message.seq) return;
+        report.current = null;
+        if (retry.current !== null) clearTimeout(retry.current);
+        return;
+      }
+      if (message.seq <= lastSeq.current) return;
+      lastSeq.current = message.seq;
+      heard.current = { position: message.position, paused: message.paused };
+      setCaption(message.caption);
+    });
+    joined.on(RoomEvent.Reconnecting, () => {
+      setReconnecting(true);
+      setStatus("Reconnecting");
+      reportSeq.current += 1;
+      report.current = { seq: reportSeq.current, ...heard.current };
+    });
+    joined.on(RoomEvent.Reconnected, () => {
+      setReconnecting(false);
+      setStatus("Narrator is speaking");
+      sendReport(0);
+    });
+    joined.on(RoomEvent.Disconnected, () => {
+      setConnected(false);
+      setReconnecting(false);
+      setStatus("The story has ended");
     });
 
     await joined.connect(url, token);
@@ -65,24 +129,39 @@ export default function PlayButton({
     await joined.localParticipant.setMicrophoneEnabled(true);
   }
 
-  function control(action: string, offset = 0) {
-    const message = JSON.stringify({ action, offset });
-    room.current?.localParticipant.publishData(new TextEncoder().encode(message));
-  }
+  const busy = !connected || reconnecting;
 
   return (
     <div>
       {voices.map((voice) => (
-        <button key={voice.id} onClick={() => play(voice.id)}>
+        <button
+          key={voice.id}
+          onClick={() => play(voice.id)}
+          disabled={connected}
+        >
           {voice.name}
         </button>
       ))}
       <p>{status}</p>
       <p>{caption}</p>
-      <button onClick={() => control("pause")}>Pause</button>
-      <button onClick={() => control("resume")}>Resume</button>
-      <button onClick={() => control("seek", -10)}>Back 10s</button>
-      <button onClick={() => control("seek", 10)}>Forward 10s</button>
+      <button onClick={() => send({ action: "pause" })} disabled={busy}>
+        Pause
+      </button>
+      <button onClick={() => send({ action: "resume" })} disabled={busy}>
+        Resume
+      </button>
+      <button
+        onClick={() => send({ action: "seek", offset: -10 })}
+        disabled={busy}
+      >
+        Back 10s
+      </button>
+      <button
+        onClick={() => send({ action: "seek", offset: 10 })}
+        disabled={busy}
+      >
+        Forward 10s
+      </button>
     </div>
   );
 }

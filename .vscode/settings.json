@@ -8,9 +8,12 @@
     "**/.DS_Store": true,
     "**/graphify-out": true,
     "web/next-env.d.ts": true,
-    "web/tsconfig.tsbuildinfo": true
+    "web/tsconfig.tsbuildinfo": true,
+    "**/.ruff_cache": true
   },
   "search.exclude": {
-    "**/graphify-out": true
-  }
+    "**/graphify-out": true,
+    "**/.ruff_cache": true
+  },
+  "python-envs.defaultEnvManager": "ms-python.python:system"
 }

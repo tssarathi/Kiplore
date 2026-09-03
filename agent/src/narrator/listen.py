@@ -34,7 +34,7 @@ class Listener:
         script: list[str],
         playing: asyncio.Event,
         spoke: asyncio.Event,
-        questions: asyncio.Queue[str],
+        questions: asyncio.Queue[str | None],
         ramp: GainRamp,
     ) -> None:
         self._stt = deepgram.STTv2(
@@ -48,7 +48,7 @@ class Listener:
         self._loud = 0
         self._quiet = 0.0
         self._ducked = False
-        self._tasks: list[asyncio.Task] = [asyncio.create_task(self._read())]
+        self._tasks: list[asyncio.Task[None]] = [asyncio.create_task(self._read())]
 
     def add_microphone(self, track: rtc.Track) -> None:
         self._tasks.append(asyncio.create_task(self._forward(track)))

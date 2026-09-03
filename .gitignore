@@ -9,3 +9,4 @@ out/
 .env.local
 .DS_Store
 graphify-out/
+.ruff_cache/

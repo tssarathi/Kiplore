@@ -1,11 +1,22 @@
 export type StoryState = {
+  type: "state";
   seq: number;
   position: number;
   paused: boolean;
   caption: string | null;
 };
 
-export function parseStoryState(payload: Uint8Array): StoryState | null {
+export type ResumeAck = {
+  type: "resume-ack";
+  seq: number;
+};
+
+export const MAX_RESUME_ATTEMPTS = 7;
+export const RESUME_RETRY_BASE_MS = 250;
+
+export function parseServerMessage(
+  payload: Uint8Array,
+): StoryState | ResumeAck | null {
   let value: unknown;
   try {
     value = JSON.parse(new TextDecoder().decode(payload));
@@ -13,12 +24,20 @@ export function parseStoryState(payload: Uint8Array): StoryState | null {
     return null;
   }
   if (typeof value !== "object" || value === null) return null;
-  const { seq, position, paused, caption } = value as Record<string, unknown>;
+  const { type, seq, position, paused, caption } = value as Record<
+    string,
+    unknown
+  >;
   if (!Number.isInteger(seq) || (seq as number) <= 0) return null;
-  if (typeof position !== "number" || !Number.isFinite(position) || position < 0) {
+  if (type === "resume-ack") return { type, seq: seq as number };
+  if (
+    typeof position !== "number" ||
+    !Number.isFinite(position) ||
+    position < 0
+  ) {
     return null;
   }
   if (typeof paused !== "boolean") return null;
   if (caption !== null && typeof caption !== "string") return null;
-  return { seq: seq as number, position, paused, caption };
+  return { type: "state", seq: seq as number, position, paused, caption };
 }
