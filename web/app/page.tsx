@@ -16,7 +16,7 @@ export default async function HomePage() {
         <p className="label mt-6 text-xs/[1.2] sm:text-sm/[1.2]">Tales you&rsquo;ll love</p>
       </div>
 
-      <h2 className="label mt-24 flex items-center justify-center gap-2 text-sm text-quiet">
+      <h2 className="label mt-14 flex items-center justify-center gap-2 text-sm text-quiet">
         <span aria-hidden="true" className="text-ink">
           ■
         </span>
