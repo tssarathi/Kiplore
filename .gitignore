@@ -13,3 +13,4 @@ graphify-out/
 .vscode/
 pyrightconfig.json
 KMS/
+tmp/
