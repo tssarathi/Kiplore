@@ -10,3 +10,4 @@ out/
 .DS_Store
 graphify-out/
 .ruff_cache/
+library/.renders/

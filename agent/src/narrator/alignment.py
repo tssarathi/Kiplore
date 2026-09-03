@@ -2,6 +2,13 @@
 
 import re
 from collections import Counter
+from dataclasses import dataclass, field
+
+@dataclass
+class Timings:
+    segments: list[dict] = field(default_factory=list)
+    chunk_timings: list[float] = field(default_factory=list)
+
 
 TAG = re.compile(r"\[[^\]]*\]\s*")
 SENTENCE_END = (".", "!", "?")

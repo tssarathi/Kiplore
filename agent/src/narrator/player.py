@@ -10,6 +10,10 @@ class Player:
         self.finished = False
 
     @property
+    def audio(self) -> bytes:
+        return bytes(self._buffer)
+
+    @property
     def position(self) -> float:
         return self._cursor / 2 / SAMPLE_RATE
 

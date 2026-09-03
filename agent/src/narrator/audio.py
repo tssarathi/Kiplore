@@ -44,6 +44,10 @@ def frame(pcm: bytes) -> rtc.AudioFrame:
     return rtc.AudioFrame(pcm, SAMPLE_RATE, NUM_CHANNELS, FRAME_SAMPLES)
 
 
+async def once(pcm: bytes) -> AsyncIterator[bytes]:
+    yield pcm
+
+
 async def fill(player: Player, chunks: AsyncIterator[bytes]) -> None:
     async for chunk in chunks:
         player.append(chunk)

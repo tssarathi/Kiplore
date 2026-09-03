@@ -10,7 +10,7 @@ from collections.abc import AsyncIterator
 
 import aiohttp
 
-from narrator.alignment import spoken_text, to_segments, words_from_chars
+from narrator.alignment import Timings, spoken_text, to_segments, words_from_chars
 from narrator.config import (
     CHUNK_GAP_SECONDS,
     ELEVEN_MODEL,
@@ -151,8 +151,7 @@ def insert_gaps(
 
 class Narration:
     def __init__(self, story: dict, voice_id: str) -> None:
-        self.segments: list[dict] = []
-        self.chunk_timings: list[float] = []
+        self.timings = Timings()
         self._text = "\n\n".join(story["script"])
         if len(self._text) > MAX_STORY_TEXT_CHARS:
             raise RuntimeError("story exceeds the synthesis text limit")
@@ -181,8 +180,10 @@ class Narration:
             while len(cuts) < len(boundaries) and len(words) > boundaries[len(cuts)]:
                 index = boundaries[len(cuts)]
                 cuts.append((words[index - 1]["end"] + words[index]["start"]) / 2)
-                self.chunk_timings.append(round(cuts[-1] + len(cuts) * GAP_SECONDS, 2))
-            self.segments = to_segments(shift_words(words, self._counts))
+                self.timings.chunk_timings.append(
+                    round(cuts[-1] + len(cuts) * GAP_SECONDS, 2)
+                )
+            self.timings.segments = to_segments(shift_words(words, self._counts))
 
             if len(cuts) == len(boundaries):
                 safe_end = len(pcm)
@@ -213,8 +214,8 @@ class Narration:
         gapped, shifted, timings = insert_gaps(bytes(pcm), words, self._counts)
         if digest.digest() != hashlib.sha256(gapped[:sent]).digest():
             raise RuntimeError("streamed audio does not match the final render")
-        self.segments = to_segments(shifted)
-        self.chunk_timings[:] = timings
+        self.timings.segments = to_segments(shifted)
+        self.timings.chunk_timings[:] = timings
         if len(gapped) > sent:
             yield gapped[sent:]
 

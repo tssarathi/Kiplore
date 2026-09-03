@@ -9,11 +9,19 @@ from dotenv import load_dotenv
 from livekit import agents, rtc
 from livekit.agents import AgentServer, JobContext
 
-from narrator.alignment import chunk_start, heard_text, segment_at
+from narrator import cache
+from narrator.alignment import (
+    Timings,
+    chunk_start,
+    heard_text,
+    segment_at,
+    spoken_text,
+)
 from narrator.answer import write_answer
 from narrator.audio import (
     discard_queued,
     fill,
+    once,
     play,
     publish_voice,
     seconds_to_bytes,
@@ -38,10 +46,10 @@ server = AgentServer(num_idle_processes=1)
 
 
 async def broadcast(
-    ctx: JobContext, player: Player, narration: Narration, paused: asyncio.Event
+    ctx: JobContext, player: Player, timings: Timings, paused: asyncio.Event
 ) -> None:
     for seq in itertools.count(1):
-        segment = segment_at(narration.segments, player.position)
+        segment = segment_at(timings.segments, player.position)
         payload = json.dumps(
             {
                 "seq": seq,
@@ -54,11 +62,11 @@ async def broadcast(
         await asyncio.sleep(1)
 
 
-def resume_point(narration: Narration, position: float) -> float:
-    segment = segment_at(narration.segments, position)
+def resume_point(timings: Timings, position: float) -> float:
+    segment = segment_at(timings.segments, position)
     if segment is not None:
         return segment["start"]
-    return chunk_start(narration.chunk_timings, position)
+    return chunk_start(timings.chunk_timings, position)
 
 
 @server.rtc_session()
@@ -128,9 +136,19 @@ async def entrypoint(ctx: JobContext) -> None:
         if publication.track is not None:
             ears.add_microphone(publication.track)
 
-    narration = Narration(story, voice["elevenLabsId"])
-    producer = asyncio.create_task(fill(player, narration.stream()))
-    broadcaster = asyncio.create_task(broadcast(ctx, player, narration, paused))
+    render = cache.render_id(story, voice["elevenLabsId"])
+    cached = cache.load(render)
+    if cached is None:
+        narration = Narration(story, voice["elevenLabsId"])
+        timings, chunks = narration.timings, narration.stream()
+        logger.info(f"narrating live render={render}")
+    else:
+        pcm, timings = cached
+        chunks = once(pcm)
+        logger.info(f"narrating from cache render={render}")
+
+    producer = asyncio.create_task(fill(player, chunks))
+    broadcaster = asyncio.create_task(broadcast(ctx, player, timings, paused))
 
     try:
         while True:
@@ -146,8 +164,8 @@ async def entrypoint(ctx: JobContext) -> None:
             while question := await questions.get():
                 heard = heard_text(
                     story["script"],
-                    narration.segments,
-                    narration.chunk_timings,
+                    timings.segments,
+                    timings.chunk_timings,
                     player.position,
                 )
                 answer = await write_answer(story["title"], heard, question)
@@ -164,7 +182,7 @@ async def entrypoint(ctx: JobContext) -> None:
             await asyncio.sleep(RESUME_BREATH_SECONDS)
             player.seek(
                 seconds_to_bytes(
-                    resume_point(narration, player.position) - player.position
+                    resume_point(timings, player.position) - player.position
                 )
             )
             ramp.snap(RESUME_FADE_FROM)
@@ -175,11 +193,26 @@ async def entrypoint(ctx: JobContext) -> None:
             logger.info("story finished")
     finally:
         session.close()
+        complete = producer.done() and not producer.cancelled()
+        failure = producer.exception() if complete else None
         producer.cancel()
         broadcaster.cancel()
         await ears.aclose()
         await asyncio.gather(producer, broadcaster, return_exceptions=True)
         await ctx.delete_room()
+        if cached is None:
+            if not complete:
+                logger.info(f"render unfinished, not cached render={render}")
+            elif failure is not None:
+                logger.warning(f"render failed render={render} reason={failure!r}")
+            else:
+                reason = cache.save(
+                    render, player.audio, timings, spoken_text(story["script"])
+                )
+                if reason is None:
+                    logger.info(f"render cached render={render}")
+                else:
+                    logger.warning(f"render rejected render={render} reason={reason}")
 
 
 if __name__ == "__main__":
