@@ -1,4 +1,5 @@
 import { AccessToken, RoomConfiguration } from "livekit-server-sdk";
+import { getStory, getVoices } from "@/lib/content";
 
 export async function POST(request: Request) {
   if (process.env.NODE_ENV !== "development") {
@@ -13,6 +14,12 @@ export async function POST(request: Request) {
   }
 
   const { collection, storyId, voiceId } = await request.json();
+  const story = await getStory(collection, storyId);
+  const voices = await getVoices();
+  if (!story || !voices.some((voice) => voice.id === voiceId)) {
+    return Response.json({ error: "no such story" }, { status: 404 });
+  }
+
   const session = crypto.randomUUID().slice(0, 8);
 
   const token = new AccessToken(key, secret, {
