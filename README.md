@@ -10,6 +10,7 @@
   <img alt="React 19" src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black">
   <img alt="Python 3.13" src="https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white">
   <img alt="LiveKit Agents 1.7" src="https://img.shields.io/badge/LiveKit%20Agents-1.7-1FD5F9?logo=livekit&logoColor=white">
+  <img alt="CI" src="https://github.com/tssarathi/Kiplore/actions/workflows/ci.yml/badge.svg">
 </p>
 
 <p align="center">
@@ -26,6 +27,8 @@
 - **Pause, resume and ten second seeks**, applied by the agent and reflected to the client.
 - **Renders are cached** in object storage under a hash of every input that shaped them,
   and quality checked before they are stored.
+- **One JSON log stream per session**, carrying time to first audio, barge-in latency and
+  answer turnaround.
 
 ## How it works
 
@@ -75,6 +78,19 @@ The application is available at http://localhost:3000. The first playback of a s
 synthesises it, which takes a few seconds and consumes ElevenLabs credits. Later playbacks
 are served from the cache.
 
+## Tests
+
+```bash
+cd agent && uv run pytest
+```
+
+```bash
+cd web && npm test
+```
+
+Neither needs a network, an API key or an audio device. GitHub Actions runs both on every
+push, along with ruff, eslint and a production build.
+
 ## Story format
 
 Each story is one JSON file with a script of seven chunks. Collections are directories
@@ -102,6 +118,7 @@ and Kipling's *Just So Stories*.
 ```
 agent/src/narrator/    the LiveKit worker: synthesis, alignment, listening,
                        answering, caching, playback and reconnect handling
+agent/tests/           unit tests, no network and no keys
 web/                   Next.js App Router client and the token endpoint
 library/               story content as JSON, one directory per collection
 ```
