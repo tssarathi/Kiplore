@@ -1,7 +1,9 @@
 "use client";
 
+import { RoomContext } from "@livekit/components-react";
 import { Room, RoomEvent } from "livekit-client";
 import { useEffect, useRef, useState } from "react";
+import Narrator from "./Narrator";
 import {
   MAX_RESUME_ATTEMPTS,
   RESUME_RETRY_BASE_MS,
@@ -23,7 +25,18 @@ export default function PlayButton({
   const [caption, setCaption] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
-  const room = useRef<Room | null>(null);
+  const [room] = useState(
+    () =>
+      new Room({
+        audioCaptureDefaults: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          voiceIsolation: false,
+        },
+        publishDefaults: { dtx: false },
+      }),
+  );
   const lastSeq = useRef(0);
   const heard = useRef({ position: 0, paused: false });
   const report = useRef<ResumeReport | null>(null);
@@ -33,13 +46,13 @@ export default function PlayButton({
   useEffect(
     () => () => {
       if (retry.current !== null) clearTimeout(retry.current);
-      void room.current?.disconnect();
+      void room.disconnect();
     },
-    [],
+    [room],
   );
 
   function send(message: object, reliable = false) {
-    room.current?.localParticipant.publishData(
+    room.localParticipant.publishData(
       new TextEncoder().encode(JSON.stringify(message)),
       { reliable },
     );
@@ -74,24 +87,14 @@ export default function PlayButton({
     }
     const { token, url } = await response.json();
 
-    const joined = new Room({
-      audioCaptureDefaults: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-        voiceIsolation: false,
-      },
-      publishDefaults: { dtx: false },
-    });
-    room.current = joined;
-    joined.on(RoomEvent.TrackSubscribed, (track) => {
+    room.on(RoomEvent.TrackSubscribed, (track) => {
       document.body.appendChild(track.attach());
       setStatus("Narrator is speaking");
     });
-    joined.on(RoomEvent.TrackUnsubscribed, (track) => {
+    room.on(RoomEvent.TrackUnsubscribed, (track) => {
       track.detach().forEach((element) => element.remove());
     });
-    joined.on(RoomEvent.DataReceived, (payload) => {
+    room.on(RoomEvent.DataReceived, (payload) => {
       const message = parseServerMessage(payload);
       if (message === null) return;
       if (message.type === "resume-ack") {
@@ -105,35 +108,35 @@ export default function PlayButton({
       heard.current = { position: message.position, paused: message.paused };
       setCaption(message.caption);
     });
-    joined.on(RoomEvent.Reconnecting, () => {
+    room.on(RoomEvent.Reconnecting, () => {
       setReconnecting(true);
       setStatus("Reconnecting");
       if (lastSeq.current === 0) return;
       reportSeq.current += 1;
       report.current = { seq: reportSeq.current, ...heard.current };
     });
-    joined.on(RoomEvent.Reconnected, () => {
+    room.on(RoomEvent.Reconnected, () => {
       setReconnecting(false);
       setStatus("Narrator is speaking");
       sendReport(0);
     });
-    joined.on(RoomEvent.Disconnected, () => {
+    room.on(RoomEvent.Disconnected, () => {
       setConnected(false);
       setReconnecting(false);
       setStatus("The story has ended");
     });
 
-    await joined.connect(url, token);
-    await joined
+    await room.connect(url, token);
+    await room
       .startAudio()
       .catch(() => setStatus("Sound is blocked in this browser"));
-    await joined.localParticipant.setMicrophoneEnabled(true);
+    await room.localParticipant.setMicrophoneEnabled(true);
   }
 
   const busy = !connected || reconnecting;
 
   return (
-    <div>
+    <RoomContext.Provider value={room}>
       {voices.map((voice) => (
         <button
           key={voice.id}
@@ -144,7 +147,7 @@ export default function PlayButton({
         </button>
       ))}
       <p>{status}</p>
-      <p>{caption}</p>
+      <Narrator caption={caption} />
       <button onClick={() => send({ action: "pause" })} disabled={busy}>
         Pause
       </button>
@@ -163,6 +166,6 @@ export default function PlayButton({
       >
         Forward 10s
       </button>
-    </div>
+    </RoomContext.Provider>
   );
 }
