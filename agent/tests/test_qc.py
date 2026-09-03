@@ -19,7 +19,9 @@ def audio(*parts: tuple[float, int]) -> bytes:
 def test_a_dead_spot_keeps_a_render_out_of_the_cache():
     stalled = audio((1.0, 3000), (2.5, 0), (1.0, 3000))
 
-    assert "silence" in qc.inspect(stalled, SPOKEN, CAPTIONS, [])
+    reason = qc.inspect(stalled, SPOKEN, CAPTIONS, [])
+
+    assert reason is not None and "silence" in reason
 
 
 def test_the_gaps_put_between_chunks_are_not_a_dead_spot():

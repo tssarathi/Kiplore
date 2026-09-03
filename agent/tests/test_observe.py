@@ -28,11 +28,14 @@ def test_setup_leaves_info_lines_actually_reaching_the_handler():
     # root defaults to WARNING, which would drop every line this module emits
     logger = logging.getLogger("narrator")
     before = (logger.handlers[:], logger.level, logger.propagate)
+    stream = io.StringIO()
     try:
         setup()
-        logger.handlers[0].stream = io.StringIO()
+        handler = logger.handlers[0]
+        assert isinstance(handler, logging.StreamHandler)
+        handler.setStream(stream)
         event(logger, "first audio", seconds=2.317)
-        written = logger.handlers[0].stream.getvalue()
+        written = stream.getvalue()
     finally:
         logger.handlers[:], logger.level, logger.propagate = before
 

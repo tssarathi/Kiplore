@@ -1,6 +1,7 @@
 """The reconnect path, driven without a network: a client the agent cannot trust."""
 
 import asyncio
+from typing import cast
 
 import pytest
 from livekit import rtc
@@ -32,7 +33,7 @@ def narrating(position: float, queued: float = 0.0) -> tuple[Session, Player]:
     playing.set()
     paused.set()
     session = Session(
-        FakeSource(queued),
+        cast(rtc.AudioSource, FakeSource(queued)),
         player,
         playing,
         paused,
