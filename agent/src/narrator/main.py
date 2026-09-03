@@ -137,15 +137,18 @@ async def entrypoint(ctx: JobContext) -> None:
             ears.add_microphone(publication.track)
 
     render = cache.render_id(story, voice["elevenLabsId"])
-    cached = cache.load(render)
+    at = cache.prefix(
+        request["collection"], request["storyId"], request["voiceId"], render
+    )
+    cached = await cache.load(at)
     if cached is None:
         narration = Narration(story, voice["elevenLabsId"])
         timings, chunks = narration.timings, narration.stream()
-        logger.info(f"narrating live render={render}")
+        logger.info(f"narrating live at={at}")
     else:
         pcm, timings = cached
         chunks = once(pcm)
-        logger.info(f"narrating from cache render={render}")
+        logger.info(f"narrating from cache at={at}")
 
     producer = asyncio.create_task(fill(player, chunks))
     broadcaster = asyncio.create_task(broadcast(ctx, player, timings, paused))
@@ -202,17 +205,17 @@ async def entrypoint(ctx: JobContext) -> None:
         await ctx.delete_room()
         if cached is None:
             if not complete:
-                logger.info(f"render unfinished, not cached render={render}")
+                logger.info(f"render unfinished, not cached at={at}")
             elif failure is not None:
-                logger.warning(f"render failed render={render} reason={failure!r}")
+                logger.warning(f"render failed at={at} reason={failure!r}")
             else:
-                reason = cache.save(
-                    render, player.audio, timings, spoken_text(story["script"])
+                reason = await cache.save(
+                    at, player.audio, timings, spoken_text(story["script"])
                 )
                 if reason is None:
-                    logger.info(f"render cached render={render}")
+                    logger.info(f"render cached at={at}")
                 else:
-                    logger.warning(f"render rejected render={render} reason={reason}")
+                    logger.warning(f"render not cached at={at} reason={reason}")
 
 
 if __name__ == "__main__":
