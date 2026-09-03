@@ -64,7 +64,7 @@ def render_id(story: dict, eleven_id: str) -> str:
 
 
 def prefix(collection: str, story_id: str, voice_id: str, render: str) -> str:
-    return f"renders/{collection}/{story_id}/{voice_id}/{render}"
+    return f"library/{collection}/{story_id}/{voice_id}/{render}"
 
 
 def _get(client, key: str) -> bytes | None:
