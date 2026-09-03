@@ -66,9 +66,12 @@ def _parse(line: bytes) -> tuple[bytes, list[str], list[float], list[float]]:
 
 
 async def _events(
-    text: str, voice_id: str, path: str
+    text: str, voice_id: str
 ) -> AsyncIterator[tuple[bytes, list[str], list[float], list[float]]]:
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/{path}"
+    url = (
+        "https://api.elevenlabs.io/v1/text-to-speech/"
+        f"{voice_id}/stream/with-timestamps"
+    )
     async with aiohttp.ClientSession(
         timeout=aiohttp.ClientTimeout(total=SYNTHESIS_TIMEOUT)
     ) as session:
@@ -159,7 +162,7 @@ class Narration:
         digest = hashlib.sha256()
 
         async for event, event_chars, event_starts, event_ends in _events(
-            self._text, self._voice_id, "stream/with-timestamps"
+            self._text, self._voice_id
         ):
             pcm += event
             chars += event_chars
@@ -208,5 +211,5 @@ class Narration:
 
 
 async def stream_answer(text: str, voice_id: str) -> AsyncIterator[bytes]:
-    async for pcm, _, _, _ in _events(text, voice_id, "stream/with-timestamps"):
+    async for pcm, _, _, _ in _events(text, voice_id):
         yield pcm

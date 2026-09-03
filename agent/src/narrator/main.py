@@ -8,8 +8,6 @@ import logging
 from dotenv import load_dotenv
 from livekit import agents, rtc
 from livekit.agents import AgentServer, JobContext
-from livekit.agents.stt import SpeechEventType
-from livekit.plugins import deepgram
 
 from narrator.alignment import chunk_start, heard_text, segment_at
 from narrator.answer import write_answer
@@ -19,11 +17,16 @@ from narrator.audio import (
     play,
     publish_voice,
     seconds_to_bytes,
-    speak,
+    speak_reply,
 )
-from narrator.config import RESUME_FADE_FROM, RESUME_FADE_SECONDS
+from narrator.config import (
+    RESUME_BREATH_SECONDS,
+    RESUME_FADE_FROM,
+    RESUME_FADE_SECONDS,
+)
 from narrator.content import load_story, load_voice
 from narrator.envelope import GainRamp
+from narrator.listen import Listener
 from narrator.player import Player
 from narrator.render import Narration, stream_answer
 
@@ -31,30 +34,6 @@ load_dotenv()
 logger = logging.getLogger("narrator")
 
 server = AgentServer(num_idle_processes=1)
-
-
-async def transcribe(
-    track: rtc.Track, playing: asyncio.Event, questions: asyncio.Queue[str]
-) -> None:
-    stream = deepgram.STT().stream()
-
-    async def read_transcripts() -> None:
-        async for event in stream:
-            if not event.alternatives or not event.alternatives[0].text:
-                continue
-            text = event.alternatives[0].text
-            if event.type == SpeechEventType.INTERIM_TRANSCRIPT and playing.is_set():
-                playing.clear()
-                logger.info("narration stopped")
-            elif event.type == SpeechEventType.FINAL_TRANSCRIPT:
-                logger.info(f"heard {text!r}")
-                questions.put_nowait(text)
-
-    reader = asyncio.create_task(read_transcripts())
-    async for audio in rtc.AudioStream(track):
-        stream.push_frame(audio.frame)
-    stream.end_input()
-    await reader
 
 
 async def broadcast(
@@ -86,13 +65,10 @@ async def entrypoint(ctx: JobContext) -> None:
     playing = asyncio.Event()
     paused = asyncio.Event()
     paused.set()
+    spoke = asyncio.Event()
     questions: asyncio.Queue[str] = asyncio.Queue()
-    listening: list[asyncio.Task] = []
     player = Player()
-
-    @ctx.room.on("track_subscribed")
-    def on_track(track: rtc.Track, *_: object) -> None:
-        listening.append(asyncio.create_task(transcribe(track, playing, questions)))
+    ramp = GainRamp()
 
     @ctx.room.on("data_received")
     def on_control(packet: rtc.DataPacket) -> None:
@@ -117,8 +93,13 @@ async def entrypoint(ctx: JobContext) -> None:
         f"listener={listener.identity} story={story['title']!r} voice={voice['name']}"
     )
 
+    ears = Listener(story["script"], playing, spoke, questions, ramp)
+    ctx.room.on("track_subscribed", lambda track, *_: ears.add_microphone(track))
+    for publication in listener.track_publications.values():
+        if publication.track is not None:
+            ears.add_microphone(publication.track)
+
     narration = Narration(story, voice["elevenLabsId"])
-    ramp = GainRamp()
     producer = asyncio.create_task(fill(player, narration.stream()))
     broadcaster = asyncio.create_task(broadcast(ctx, player, narration, paused))
 
@@ -130,18 +111,31 @@ async def entrypoint(ctx: JobContext) -> None:
                 break
             logger.info(f"rewound {discard_queued(source, player):.2f}s of queued audio")
 
-            question = await questions.get()
-            heard = heard_text(
-                story["script"],
-                narration.segments,
-                narration.chunk_timings,
-                player.position,
-            )
-            answer = await write_answer(story["title"], heard, question)
-            logger.info(f"answering {answer!r}")
-            await speak(source, stream_answer(answer, voice["elevenLabsId"]))
+            while True:
+                question = await questions.get()
+                if not question:
+                    break
+                heard = heard_text(
+                    story["script"],
+                    narration.segments,
+                    narration.chunk_timings,
+                    player.position,
+                )
+                answer = await write_answer(story["title"], heard, question)
+                logger.info(f"answering {answer!r}")
+                replied = await speak_reply(
+                    source, stream_answer(answer, voice["elevenLabsId"]), spoke
+                )
+                if replied:
+                    break
+                logger.info("answer interrupted")
 
-            player.seek(seconds_to_bytes(resume_point(narration, player.position) - player.position))
+            await asyncio.sleep(RESUME_BREATH_SECONDS)
+            player.seek(
+                seconds_to_bytes(
+                    resume_point(narration, player.position) - player.position
+                )
+            )
             ramp.snap(RESUME_FADE_FROM)
             ramp.set(1.0, RESUME_FADE_SECONDS)
 
@@ -149,6 +143,7 @@ async def entrypoint(ctx: JobContext) -> None:
         logger.info("story finished")
     finally:
         broadcaster.cancel()
+        await ears.aclose()
         await ctx.delete_room()
 
 

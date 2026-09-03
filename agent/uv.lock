@@ -783,6 +783,21 @@ wheels = [
 ]
 
 [[package]]
+name = "livekit-plugins-noise-cancellation"
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "livekit" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d8/ad/e049eeca9c5175cc70c036c6dc5ce048215949b5d7ea83dbea6e2e06260c/livekit_plugins_noise_cancellation-0.3.0-py3-none-macosx_10_9_x86_64.whl", hash = "sha256:6c877ca3f31278ce3b6ba7a3adc0eaaf813a53ba5a900445616be69ce7e4b3a8", size = 66079924, upload-time = "2026-07-17T10:35:02.671Z" },
+    { url = "https://files.pythonhosted.org/packages/07/61/7a860386cf0c9d27f4d3fdcfeee411153e1618552d6a15ad46d32df64ac5/livekit_plugins_noise_cancellation-0.3.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:1d100f249d25556696d8fe358b7c22d81017df67f256ee3b5c9c36830409621f", size = 64625049, upload-time = "2026-07-17T10:35:06.186Z" },
+    { url = "https://files.pythonhosted.org/packages/2d/0d/df886e71b463911a9190cea948100f89c1e0546cff7e84dd93862b73e2d9/livekit_plugins_noise_cancellation-0.3.0-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:4b48de9ffdb8af47820ecd5e44ef0dbb910dfd05f17f6fadcbfd64deceb7a09a", size = 70250046, upload-time = "2026-07-17T10:35:09.376Z" },
+    { url = "https://files.pythonhosted.org/packages/d1/43/701df4746e4e8b660f1399ec0a3da80de211f1624725a7496d28f7443b4a/livekit_plugins_noise_cancellation-0.3.0-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:1703099d634d26171e2f0402c81fc84f13bf0bc92a7f9ba16f9af1d0eefee980", size = 73004876, upload-time = "2026-07-17T10:35:12.775Z" },
+    { url = "https://files.pythonhosted.org/packages/6f/b4/3ed7bac7aabec196c1e8969b407b71f69bdb0c942b1b3cd2aed07ae276cf/livekit_plugins_noise_cancellation-0.3.0-py3-none-win_amd64.whl", hash = "sha256:7f6001d0dd3b00c7748949b7a8349de002118fc03faa2d38411ad0d05180ccab", size = 65788455, upload-time = "2026-07-17T10:35:15.759Z" },
+]
+
+[[package]]
 name = "livekit-protocol"
 version = "1.1.26"
 source = { registry = "https://pypi.org/simple" }
@@ -904,6 +919,7 @@ source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
     { name = "livekit-agents", extra = ["deepgram"] },
+    { name = "livekit-plugins-noise-cancellation" },
     { name = "python-dotenv" },
 ]
 
@@ -911,6 +927,7 @@ dependencies = [
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.14.3" },
     { name = "livekit-agents", extras = ["deepgram"], specifier = ">=1.7.1" },
+    { name = "livekit-plugins-noise-cancellation", specifier = ">=0.3.0" },
     { name = "python-dotenv", specifier = ">=1.2.3" },
 ]
 

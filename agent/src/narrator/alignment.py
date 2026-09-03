@@ -1,6 +1,7 @@
 """Character timestamps into words, sentences and captions."""
 
 import re
+from collections import Counter
 
 TAG = re.compile(r"\[[^\]]*\]\s*")
 SENTENCE_END = (".", "!", "?")
@@ -9,6 +10,13 @@ QUOTES = "”\"'"
 
 def spoken_text(script: list[str]) -> str:
     return " ".join(TAG.sub("", chunk) for chunk in script)
+
+
+def keyterms(script: list[str]) -> list[str]:
+    words = re.findall(r"[A-Za-z]+", spoken_text(script))
+    seen = Counter(word for word in words if word[0].isupper() and len(word) > 2)
+    lower = {word for word in words if word[0].islower()}
+    return [w for w, n in seen.most_common() if n >= 3 and w.lower() not in lower][:10]
 
 
 def words_from_chars(

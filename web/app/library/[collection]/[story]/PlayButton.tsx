@@ -34,7 +34,15 @@ export default function PlayButton({
     }
     const { token, url } = await response.json();
 
-    const joined = new Room();
+    const joined = new Room({
+      audioCaptureDefaults: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        voiceIsolation: false,
+      },
+      publishDefaults: { dtx: false },
+    });
     room.current = joined;
     joined.on(RoomEvent.TrackSubscribed, (track) => {
       document.body.appendChild(track.attach());

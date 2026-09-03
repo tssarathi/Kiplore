@@ -79,6 +79,26 @@ async def play(
         await source.capture_frame(frame(scale(pcm, ramp.step(CHUNK_SECONDS))))
 
 
+async def speak_reply(
+    source: rtc.AudioSource, chunks: AsyncIterator[bytes], spoke: asyncio.Event
+) -> bool:
+    spoke.clear()
+    speaking = asyncio.create_task(speak(source, chunks))
+    interrupt = asyncio.create_task(spoke.wait())
+    done, _ = await asyncio.wait(
+        {speaking, interrupt}, return_when=asyncio.FIRST_COMPLETED
+    )
+    if speaking in done:
+        interrupt.cancel()
+        await speaking
+        return True
+    speaking.cancel()
+    source.clear_queue()
+    await asyncio.gather(speaking, return_exceptions=True)
+    source.clear_queue()
+    return False
+
+
 async def speak(source: rtc.AudioSource, chunks: AsyncIterator[bytes]) -> None:
     buffer = bytearray()
     async for chunk in chunks:
