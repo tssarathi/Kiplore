@@ -36,7 +36,9 @@ def discard_queued(source: rtc.AudioSource, player: Player) -> float:
 async def publish_voice(ctx: JobContext) -> rtc.AudioSource:
     source = rtc.AudioSource(SAMPLE_RATE, NUM_CHANNELS, queue_size_ms=SOURCE_QUEUE_MS)
     track = rtc.LocalAudioTrack.create_audio_track("narrator-voice", source)
-    await ctx.room.local_participant.publish_track(track)
+    await ctx.room.local_participant.publish_track(
+        track, rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE)
+    )
     return source
 
 

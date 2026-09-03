@@ -58,13 +58,17 @@ async def broadcast(
 ) -> None:
     for seq in itertools.count(1):
         segment = segment_at(timings.segments, player.position)
-        speaking = segment is not None and player.position < segment["end"]
+        if segment is not None and player.position >= segment["end"]:
+            segment = None
         payload = json.dumps(
             {
                 "seq": seq,
                 "position": round(player.position, 1),
+                "duration": round(timings.chunk_timings[-1], 1)
+                if timings.chunk_timings
+                else 0.0,
                 "paused": not paused.is_set(),
-                "caption": segment["text"] if speaking else None,
+                "caption": segment["text"] if segment is not None else None,
             }
         )
         await ctx.room.local_participant.publish_data(payload, reliable=False)
