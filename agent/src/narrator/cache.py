@@ -83,13 +83,13 @@ def _put(client, key: str, body: bytes, content_type: str) -> None:
     )
 
 
-def _load(at: str) -> tuple[bytes, Timings] | None:
-    client = _client()
-    raw = _get(client, f"{at}/{TIMINGS}")
-    if raw is None:
-        return None
-    meta = json.loads(raw)
-    audio = _get(client, f"{at}/{meta['audio']}")
+def _resolve(at: str) -> dict | None:
+    raw = _get(_client(), f"{at}/{TIMINGS}")
+    return None if raw is None else json.loads(raw)
+
+
+def _fetch(at: str, meta: dict) -> tuple[bytes, Timings]:
+    audio = _get(_client(), f"{at}/{meta['audio']}")
     if audio is None:
         raise ValueError(f"{meta['audio']} is missing")
     if len(audio) != meta["bytes"]:
@@ -99,9 +99,12 @@ def _load(at: str) -> tuple[bytes, Timings] | None:
 
 async def load(at: str) -> tuple[bytes, Timings] | None:
     try:
-        return await asyncio.wait_for(
-            asyncio.to_thread(_load, at), CACHE_RESOLVE_SECONDS
+        meta = await asyncio.wait_for(
+            asyncio.to_thread(_resolve, at), CACHE_RESOLVE_SECONDS
         )
+        if meta is None:
+            return None
+        return await asyncio.to_thread(_fetch, at, meta)
     except TimeoutError:
         logger.warning(f"render lookup timed out at={at}")
         return None
