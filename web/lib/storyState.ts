@@ -1,6 +1,4 @@
-// Everything the agent sends arrives over the LiveKit data channel as raw bytes from
-// outside the app, so nothing here is taken on trust: each field is checked before it
-// is allowed to reach React state.
+// the agent sends raw bytes from outside the app, so every field is checked here
 
 export type StoryState = {
   type: "state";
@@ -16,8 +14,7 @@ export type ResumeAck = {
   seq: number;
 };
 
-// A resume report is retried with a doubling delay, so seven attempts span about
-// thirty seconds, which is how long the agent waits before resuming without one.
+// seven attempts with a doubling delay span the 30s the agent waits for one
 export const MAX_RESUME_ATTEMPTS = 7;
 export const RESUME_RETRY_BASE_MS = 250;
 
@@ -36,7 +33,7 @@ export function parseServerMessage(
     string,
     unknown
   >;
-  // Both message types carry seq, so it is checked before they diverge.
+  // both message types carry seq, so it is checked before they diverge
   if (!Number.isInteger(seq) || (seq as number) <= 0) return null;
   if (type === "resume-ack") return { type, seq: seq as number };
   if (

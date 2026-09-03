@@ -26,22 +26,22 @@ def test_gaps_land_between_chunks_and_the_timings_point_at_them():
 
     gapped, shifted, timings = insert_gaps(pcm, words, [2, 2])
 
-    # One gap between the two chunks, one closing the story.
+    # one gap between the two chunks, one closing the story
     assert len(gapped) == len(pcm) + 2 * len(GAP)
 
-    # The cut falls midway between "two" ending and "three" starting.
+    # the cut falls midway between "two" ending and "three" starting
     cut = offset_of(1.0)
     assert gapped[:cut] == pcm[:cut]
     assert gapped[cut : cut + len(GAP)] == GAP
 
-    # The chunk timing is the far edge of that gap, measured in the gapped audio.
+    # the chunk timing is the far edge of that gap, in the gapped audio
     assert timings[0] == pytest.approx(1.0 + GAP_SECONDS)
     edge = offset_of(timings[0])
     assert gapped[edge - 2 : edge] == SILENT
     assert gapped[edge : edge + 2] != SILENT
 
-    # The last timing is the true length of what came back.
+    # the last timing is the true length of what came back
     assert timings[-1] == pytest.approx(len(gapped) / 2 / SAMPLE_RATE)
 
-    # The words of chunk two moved with the audio, not independently of it.
+    # the words of chunk two moved with the audio, not independently of it
     assert shifted[2]["start"] == pytest.approx(1.1 + GAP_SECONDS)

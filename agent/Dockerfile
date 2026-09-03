@@ -1,6 +1,5 @@
-# The narrator worker. LiveKit takes an image, so this is how the agent actually ships.
-# Built from the repository root, because the worker reads the story library that sits
-# beside it and the image has to preserve that layout.
+# the narrator worker; LiveKit takes an image, so this is how the agent ships
+# built from the repository root, to preserve the library sitting beside it
 
 FROM python:3.13-slim AS build
 
@@ -8,9 +7,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.12 /uv /bin/uv
 
 WORKDIR /app/agent
 
-# Dependencies resolve from the lockfile before any source is copied, so editing a
-# module does not reinstall the world. The download cache is mounted rather than
-# copied, so it speeds up a rebuild without ending up in a layer.
+# dependencies before source, so editing a module does not reinstall the world
 COPY agent/pyproject.toml agent/uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-install-project --no-dev
@@ -24,11 +21,11 @@ FROM python:3.13-slim
 
 WORKDIR /app/agent
 
-# Only the environment crosses over. uv itself has no business in a running worker.
+# only the environment crosses over; uv has no business in a running worker
 COPY --from=build /app/agent/.venv ./.venv
 COPY agent/src ./src
 
-# Beside the agent, not inside it, exactly as in the repository.
+# beside the agent, not inside it, exactly as in the repository
 COPY library /app/library
 
 ENV PATH="/app/agent/.venv/bin:$PATH"

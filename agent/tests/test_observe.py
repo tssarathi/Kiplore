@@ -25,8 +25,7 @@ def test_a_log_line_is_json_carrying_the_session_and_its_fields():
 
 
 def test_setup_leaves_info_lines_actually_reaching_the_handler():
-    # The level is inherited from root otherwise, which defaults to WARNING and drops
-    # every line this module exists to emit.
+    # root defaults to WARNING, which would drop every line this module emits
     logger = logging.getLogger("narrator")
     before = (logger.handlers[:], logger.level, logger.propagate)
     try:

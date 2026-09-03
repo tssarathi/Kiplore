@@ -1,5 +1,4 @@
-// The agent's messages arrive as raw bytes over the data channel. Anything that gets
-// past this parser lands straight in React state and on the screen.
+// anything that gets past this parser lands in React state and on the screen
 
 import assert from "node:assert/strict";
 import { test } from "node:test";

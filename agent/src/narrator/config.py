@@ -1,67 +1,64 @@
-"""Every tunable value in one place."""
+"""Every tunable number, and the answer prompt."""
 
 from pathlib import Path
 
-# Story files sit beside the agent so the worker and the web client read the same ones.
+# beside the agent, so the worker and the web client read the same files
 LIBRARY_DIR = Path(__file__).resolve().parents[3] / "library"
 
-# Signed 16-bit mono PCM throughout. SAMPLE_RATE must match OUTPUT_FORMAT below.
-SAMPLE_RATE = 22050
+# signed 16-bit mono PCM throughout
+SAMPLE_RATE = 22050  # enough for speech; must match OUTPUT_FORMAT below
 NUM_CHANNELS = 1
-CHUNK_SECONDS = 0.02  # one frame; LiveKit wants a trickle, not blocks
+CHUNK_SECONDS = 0.02  # one 20 ms frame, the usual real-time unit
 FRAME_SAMPLES = int(SAMPLE_RATE * CHUNK_SECONDS)
-SOURCE_QUEUE_MS = 200  # queued audio can be dropped but not unsaid, so keep it short
+SOURCE_QUEUE_MS = 200  # paces playback; little is thrown away on an interrupt
 
-# Fades, in seconds. Cutting audio dead clicks, so every stop and start slides.
-PAUSE_FADE_SECONDS = 0.15
-RESUME_FADE_FROM = 0.65  # resuming from part volume sounds like a breath
+# fades, in seconds; a dead cut clicks, so every stop and start slides
+PAUSE_FADE_SECONDS = 0.15  # no click, still feels immediate
+RESUME_FADE_FROM = 0.65  # part volume sounds like a breath before speaking
 RESUME_FADE_SECONDS = 0.4
-RESUME_BREATH_SECONDS = 0.2  # silence between the answer ending and the story going on
+RESUME_BREATH_SECONDS = 0.2  # nobody starts the next sentence the instant one ends
 
-# Ducking runs on raw mic energy, not words: a transcript costs a round trip they hear.
-DUCK_VOLUME = 0.25
-DUCK_RMS = 0.01  # fraction of full scale
-DUCK_FRAMES = 3  # consecutive loud frames, so one cough does not duck
+# ducking runs on raw mic energy; a transcript costs a round trip they hear
+DUCK_VOLUME = 0.25  # audible underneath: polite, not switched off
+DUCK_RMS = 0.01  # 1% of full scale, so it is device-independent
+DUCK_FRAMES = 3  # filters a cough, still only tens of milliseconds
 DUCK_ATTACK_SECONDS = 0.12
 DUCK_DECAY_SECONDS = 0.25
 DUCK_RELEASE_SECONDS = 0.7  # rides over the pauses inside a child's sentence
 
-# Deepgram's confidence the turn is over. Higher waits longer, lower talks over them.
-EOT_THRESHOLD = 0.8
+# Deepgram's confidence the turn is over
+EOT_THRESHOLD = 0.8  # higher waits politely, lower talks over a thinking child
 
-RECONNECT_GRACE_SECONDS = 60  # how long a dropped listener keeps their story alive
+RECONNECT_GRACE_SECONDS = 60  # fits under the room's 90s departure timeout
 RESUME_REPORT_SECONDS = 30  # wait for the client's position before using our own
 
-CHUNK_GAP_SECONDS = 0.8  # silence between chunks; how the story gets its pauses
-MAX_STORY_TEXT_CHARS = 5000  # v3's limit; one request keeps the voice consistent
+CHUNK_GAP_SECONDS = 0.8  # a real storyteller's pause between paragraphs
+MAX_STORY_TEXT_CHARS = 5000  # v3's per-request limit
 
 ELEVEN_MODEL = "eleven_v3"  # the only model that honours the tags in the scripts
 OUTPUT_FORMAT = "pcm_22050"
-SEED = 42
-PIPELINE_VERSION = 1  # raised by hand; in the cache key, so it retires old renders
+SEED = 42  # repeatability, which is what makes the cache meaningful
+PIPELINE_VERSION = 1  # in the cache key; raise it to retire every stored render
 
-# Starting a story waits on this lookup, so render live rather than wait on storage.
+# cache timeouts, in seconds
 CACHE_CONNECT_SECONDS = 5
-CACHE_READ_SECONDS = 30
-CACHE_RESOLVE_SECONDS = 1.5
+CACHE_READ_SECONDS = 30  # budgets the transfer, which nobody is waiting on
+CACHE_RESOLVE_SECONDS = 1.5  # budgets the decision; the child is waiting on it
 
-# Gates a render must pass to be cached. A bad render, once stored, is served for ever.
+# gates into the cache; a bad render, once stored, is served for ever
 MIN_CHARS_PER_SECOND = 6.0
 MAX_CHARS_PER_SECOND = 25.0
 SILENCE_RMS = 0.004
 SILENCE_WINDOW_SECONDS = 0.05
-MAX_SILENCE_SECONDS = 2.0
-MIN_ALIGNMENT_COVERAGE = 0.85
+MAX_SILENCE_SECONDS = 2.0  # longer than any deliberate gap, shorter than a stall
+MIN_ALIGNMENT_COVERAGE = 0.85  # below this the end of the story has no captions
 
 ANSWER_MODEL = "gpt-5.4"
-# A child is sitting in silence while this runs, so it is cut off well before an
-# ordinary HTTP timeout would fire. A short fallback line beats a long pause.
-ANSWER_TIMEOUT_SECONDS = 10.0
-RECENT_ANSWERS = 6  # replies shown back to the narrator so it varies its openings
-CLARIFY_WAIT_SECONDS = 12.0  # after asking the child to repeat, before carrying on
+ANSWER_TIMEOUT_SECONDS = 10.0  # a child sits in silence; a fallback beats a pause
+RECENT_ANSWERS = 6  # stops repeated openings without wasting context
+CLARIFY_WAIT_SECONDS = 12.0  # a fair chance to repeat, then the story goes on
 
-# Most of this prompt exists to stop the model doing things that are harmless in a chat
-# window and wrong here: spoiling, inventing, or promising to change a written story.
+# guards against spoiling, inventing, and promising to change a written story
 ANSWER_PROMPT = """# Role and objective
 You are the voice telling the bedtime story "{title}" to a young child. The child has just
 spoken to you in the middle of the story. You answer out loud, in the same voice that has
@@ -133,12 +130,10 @@ them again, and do not say anything close to them. Reach for different words.
 
 Now reply to the child."""
 
-# Spoken when there is nothing left of the answer to say. Warm, ends on a statement,
-# and promises nothing, since the story carries on the moment it finishes.
+# spoken when nothing is left of the answer: warm, and promises nothing
 ANSWER_FALLBACK = "Mm, I am not sure about that one."
 
-# Sent with every request and folded into the cache key. Stability 0.5 is ElevenLabs'
-# Natural setting, which they recommend for audio tag adherence.
+# folded into the cache key; 0.5 is Natural, which ElevenLabs advise for tags
 VOICE_SETTINGS = {
     "stability": 0.5,
     "similarity_boost": 0.75,

@@ -23,7 +23,7 @@ def test_a_dead_spot_keeps_a_render_out_of_the_cache():
 
 
 def test_the_gaps_put_between_chunks_are_not_a_dead_spot():
-    # The same audio, but now the quiet stretch is a chunk boundary we asked for.
+    # same audio, but the quiet stretch is now a boundary we asked for
     deliberate = audio((1.0, 3000), (2.5, 0), (1.0, 3000))
 
     assert qc.inspect(deliberate, SPOKEN, CAPTIONS, [2.0]) is None

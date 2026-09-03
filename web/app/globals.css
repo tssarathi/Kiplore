@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* Design tokens. Tailwind v4 reads these directly, so there is no config file. */
+/* design tokens; Tailwind v4 reads these directly, so there is no config file */
 @theme inline {
   --font-display: var(--font-bodoni), Georgia, serif;
   --font-mono: var(--font-fragment), ui-monospace, monospace;
@@ -16,8 +16,7 @@
   --color-sage: #759093;
 }
 
-/* The three type roles: display for titles, label for small uppercase text, mono for
-   body copy. Defined once here because each is a set of properties, not a single one. */
+/* three type roles, each a set of properties: display, label, mono */
 @layer components {
   .display {
     font-family: var(--font-display);
@@ -42,7 +41,7 @@
   }
 }
 
-/* Anyone whose system asks for less motion gets none of the transitions. */
+/* a system asking for less motion gets none of the transitions */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

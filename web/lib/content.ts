@@ -1,5 +1,4 @@
-// The library, read straight off disk. Server side only: importing this from a client
-// component would try to bundle node:fs.
+// the library on disk, server side only: node:fs cannot be bundled for a client
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -23,11 +22,9 @@ export type Voice = {
   look: "elder" | "woman" | "man";
 };
 
-// A sibling of web/ rather than a directory inside it, so the agent and the client read
-// the same story files.
+// a sibling of web/, so the agent and the client read the same story files
 const LIBRARY_DIR = path.join(process.cwd(), "..", "library");
-// Ids come from the URL and go into a path, so they are held to characters that cannot
-// climb out of the library.
+// ids come from the URL and go into a path, so they are held to safe characters
 const NAME = /^[A-Za-z0-9_-]+$/;
 
 export async function getVoices(): Promise<Voice[]> {
@@ -52,9 +49,8 @@ export async function getStory(
   }
 }
 
-/** A directory name as a display title: "hans-andersen" becomes "Hans Andersen". */
-// Collections carry no metadata file; deriving the title from the name is what keeps it
-// that way.
+/** A directory name as a title: "hans-andersen" becomes "Hans Andersen". */
+// collections carry no metadata file, and deriving the title keeps it that way
 export function titleOf(id: string): string {
   return id
     .split("-")
@@ -63,7 +59,7 @@ export function titleOf(id: string): string {
 }
 
 /** Every collection holding at least one story. */
-// The directory test keeps voices.json out; the count keeps empty directories out.
+// the directory test keeps voices.json out, the count keeps empty ones out
 export async function getCollections(): Promise<Collection[]> {
   const entries = await readdir(LIBRARY_DIR, { withFileTypes: true });
   const collections = await Promise.all(

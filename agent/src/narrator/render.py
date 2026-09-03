@@ -1,10 +1,4 @@
-"""Turning story text into the narrator's voice.
-
-The whole story goes to ElevenLabs in one request so the voice does not reset partway,
-and comes back as audio plus a timestamp for every character. Playback starts on the
-first bytes, so audio has to be released before the alignment describing it is
-complete, which is most of the difficulty in this file.
-"""
+"""Story text to audio, with a timestamp on every character."""
 
 import base64
 import hashlib
@@ -28,19 +22,19 @@ from narrator.config import (
 )
 
 SYNTHESIS_TIMEOUT = 600
-# The silence inserted between chunks, in samples, bytes and seconds.
+# the silence between chunks, in samples, bytes and seconds
 GAP_SAMPLES = int(SAMPLE_RATE * CHUNK_GAP_SECONDS)
 GAP = bytes(GAP_SAMPLES * 2)
 GAP_SECONDS = GAP_SAMPLES / SAMPLE_RATE
 
 
 def offset_of(seconds: float) -> int:
-    """A time in the render as a byte offset into it."""
+    """A time in the render as a byte offset."""
     return int(seconds * SAMPLE_RATE) * 2
 
 
 def _finite(value: object) -> bool:
-    """True for a real, non-negative number. Bools are not numbers here."""
+    """A real, non-negative number, and not a bool."""
     return (
         not isinstance(value, bool)
         and isinstance(value, (int, float))
@@ -50,11 +44,8 @@ def _finite(value: object) -> bool:
 
 
 def _parse(line: bytes) -> tuple[bytes, list[str], list[float], list[float]]:
-    """One streamed event, rejecting anything malformed.
-
-    Alignment drives captions, resume points and the cache, so a bad event is raised
-    rather than worked around: wrong timings are harder to notice than a failed story.
-    """
+    """One synthesis event, raising on anything malformed."""
+    # check every field: wrong timings are harder to notice than a failed story
     event = json.loads(line)
     audio = event.get("audio_base64")
     if not isinstance(audio, str):
@@ -62,7 +53,8 @@ def _parse(line: bytes) -> tuple[bytes, list[str], list[float], list[float]]:
     pcm = base64.b64decode(audio, validate=True)
     if len(pcm) % 2:
         raise RuntimeError("synthesis audio is not whole samples")
-    # Some events carry audio with no alignment, which is normal and not an error.
+
+    # audio with no alignment is normal, not an error
     alignment = event.get("alignment")
     if alignment is None:
         return pcm, [], [], []
@@ -89,13 +81,14 @@ def _parse(line: bytes) -> tuple[bytes, list[str], list[float], list[float]]:
 async def _events(
     text: str, voice_id: str
 ) -> AsyncIterator[tuple[bytes, list[str], list[float], list[float]]]:
-    """Stream synthesis events for one piece of text."""
+    """Stream NDJSON, carrying partial lines across reads."""
     url = (
         f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream/with-timestamps"
     )
     async with aiohttp.ClientSession(
         timeout=aiohttp.ClientTimeout(total=SYNTHESIS_TIMEOUT)
     ) as session:
+        # one request for the whole story, so the voice does not reset partway
         async with session.post(
             url,
             params={"output_format": OUTPUT_FORMAT},
@@ -112,8 +105,8 @@ async def _events(
                 raise RuntimeError(
                     f"synthesis failed, HTTP {response.status}: {detail}"
                 )
-            # Newline-delimited JSON: reads land mid-line, so the tail is carried over
-            # until the rest of it arrives.
+
+            # newline-delimited JSON: reads land mid-line, so carry the tail over
             buffer = b""
             async for data in response.content.iter_any():
                 buffer += data
@@ -126,11 +119,7 @@ async def _events(
 
 
 def shift_words(words: list[dict], counts: list[int]) -> list[dict]:
-    """Push word timings later to account for the gaps inserted ahead of them.
-
-    ElevenLabs times the text it was given, which has no gaps in it. Every word in
-    chunk n is therefore late by n gaps once the gaps are inserted.
-    """
+    """Push word times later by one gap per preceding chunk."""
     shifted: list[dict] = []
     index = 0
     for chunk, count in enumerate(counts):
@@ -150,22 +139,14 @@ def shift_words(words: list[dict], counts: list[int]) -> list[dict]:
 def insert_gaps(
     pcm: bytes, words: list[dict], counts: list[int]
 ) -> tuple[bytes, list[dict], list[float]]:
-    """Cut the audio at the chunk boundaries, insert the gaps, and retime everything.
-
-    Args:
-        counts: Spoken words per chunk, which is how the flat alignment is mapped back
-            onto the script.
-
-    Returns:
-        The gapped audio, the shifted words, and the end of each chunk in seconds.
-    """
+    """Cut at word midpoints, splice silence, retime everything."""
     if sum(counts) != len(words):
         raise RuntimeError(
             f"word mapping failed: script has {sum(counts)} spoken words, "
             f"alignment produced {len(words)}"
         )
-    # Cut midway between the last word of one chunk and the first of the next, so
-    # neither is clipped by the silence going in between them.
+
+    # where exactly to cut: midway between two words, so neither is clipped
     cuts = []
     index = 0
     for count in counts[:-1]:
@@ -198,7 +179,7 @@ class Narration:
         self._voice_id = voice_id
 
     async def stream(self) -> AsyncIterator[bytes]:
-        """Yield the render as it arrives, filling in `timings` along the way."""
+        """Yield the render as it arrives, filling in the timings as it goes."""
         pcm = bytearray()
         chars: list[str] = []
         starts: list[float] = []
@@ -225,9 +206,7 @@ class Narration:
                 )
             self.timings.segments = to_segments(shift_words(words, self._counts))
 
-            # Only audio up to the last fully timed word may be released. Beyond that
-            # a later event can still revise where the word ends, and a gap cut in the
-            # wrong place cannot be taken back once it has been played.
+            # release only up to the last fully timed word; a later event can move it
             if len(cuts) == len(boundaries):
                 safe_end = len(pcm)
             elif words:
@@ -235,6 +214,7 @@ class Narration:
             else:
                 safe_end = emitted
 
+            # emit each finished chunk with its gap, then any safe audio after it
             while gaps_emitted < len(cuts):
                 cut = offset_of(cuts[gaps_emitted])
                 if cut > safe_end:
@@ -253,9 +233,7 @@ class Narration:
                 emitted = safe_end
                 yield block
 
-        # Reassembled from scratch now the alignment is complete, then compared with
-        # what was actually streamed. They must agree, because the streamed audio is
-        # what the child heard and the reassembled audio is what gets cached.
+        # rebuild from the full alignment and prove it matches what was streamed
         words = words_from_chars(chars, starts, ends)
         gapped, shifted, timings = insert_gaps(bytes(pcm), words, self._counts)
         if digest.digest() != hashlib.sha256(gapped[:sent]).digest():
@@ -267,6 +245,6 @@ class Narration:
 
 
 async def stream_answer(text: str, voice_id: str) -> AsyncIterator[bytes]:
-    """Synthesise a reply. Nothing seeks or captions it, so the timings are dropped."""
+    """Synthesise a reply; drop the timings nobody needs."""
     async for pcm, _, _, _ in _events(text, voice_id):
         yield pcm

@@ -1,9 +1,4 @@
-"""Renders in R2, named by everything that shaped them.
-
-Synthesis is the slow and costly part of starting a story, and the same script in the
-same voice always sounds the same, so a render is worth keeping. Audio and timings are
-stored together: recovering the timings would mean synthesising again.
-"""
+"""Storing and fetching finished renders."""
 
 import asyncio
 import hashlib
@@ -54,11 +49,8 @@ def _client():
 
 
 def render_id(story: dict, eleven_id: str) -> str:
-    """A short hash of everything that changes how a story sounds.
-
-    Because every such input is in the hash, an edit anywhere yields a new id and the
-    stale render is simply never asked for again. Nothing is ever invalidated by hand.
-    """
+    """Hash every input that shapes the sound."""
+    # naming a thing after its contents, so an edit anywhere retires the old render
     identity = {
         "script": story["script"],
         "voice_id": eleven_id,
@@ -74,7 +66,7 @@ def render_id(story: dict, eleven_id: str) -> str:
 
 
 def prefix(collection: str, story_id: str, voice_id: str, render: str) -> str:
-    """Where one render lives in the bucket."""
+    """Readable path, hash at the end."""
     return f"library/{collection}/{story_id}/{voice_id}/{render}"
 
 
@@ -95,31 +87,27 @@ def _put(client, key: str, body: bytes, content_type: str) -> None:
 
 
 def _resolve(at: str) -> dict | None:
+    """The metadata record; finding one is the whole cache decision."""
     raw = _get(_client(), f"{at}/{TIMINGS}")
     return None if raw is None else json.loads(raw)
 
 
 def _fetch(at: str, meta: dict) -> tuple[bytes, Timings]:
-    """Read the audio a metadata record points at, and check it is intact."""
+    """The audio a record points at, checked against the length it claims."""
     audio = _get(_client(), f"{at}/{meta['audio']}")
     if audio is None:
         raise ValueError(f"{meta['audio']} is missing")
-    # A length mismatch means a half-written upload; better to re-render than to play
-    # a story that stops early.
+
+    # a length mismatch means a half-written upload
     if len(audio) != meta["bytes"]:
         raise ValueError("render audio does not match its timings")
     return audio, Timings(meta["segments"], meta["chunk_timings"])
 
 
 async def load(at: str) -> tuple[bytes, Timings] | None:
-    """A cached render, or None for anything that makes it unusable.
-
-    Every failure is swallowed: a miss only costs a live render, so nothing here is
-    worth failing a story over.
-    """
+    """Swallow every failure; a miss only costs a render."""
     try:
-        # Only the small metadata read is on the short timeout, since it is what the
-        # child is waiting on. Fetching the audio may take as long as it needs.
+        # short timeout on the lookup alone; the child is waiting on that, not audio
         meta = await asyncio.wait_for(
             asyncio.to_thread(_resolve, at), CACHE_RESOLVE_SECONDS
         )
@@ -135,12 +123,12 @@ async def load(at: str) -> tuple[bytes, Timings] | None:
 
 
 def _save(at: str, pcm: bytes, timings: Timings, spoken: str) -> str | None:
-    """Quality check a render, then upload the audio and its metadata."""
+    """Quality check, upload audio, then metadata last."""
     reason = qc.inspect(pcm, spoken, timings.segments, timings.chunk_timings)
     if reason is not None:
         return reason
-    # Metadata is written last and names the audio object, so a reader that finds
-    # timings knows the audio behind them finished uploading.
+
+    # writing in the right order: found timings mean the audio finished uploading
     client = _client()
     audio = f"audio-{hashlib.sha256(pcm).hexdigest()[:12]}.pcm"
     _put(client, f"{at}/{audio}", pcm, "application/octet-stream")
@@ -161,7 +149,7 @@ def _save(at: str, pcm: bytes, timings: Timings, spoken: str) -> str | None:
 
 
 async def save(at: str, pcm: bytes, timings: Timings, spoken: str) -> str | None:
-    """Store a render, returning the reason it was not stored, or None on success."""
+    """Store a render, returning the reason it was not stored, or None."""
     try:
         return await asyncio.to_thread(_save, at, pcm, timings, spoken)
     except REMOTE_ERRORS as error:

@@ -1,9 +1,4 @@
-"""Hearing the child: energy for ducking, Flux for turns.
-
-Two paths out of the same microphone frames. Raw energy ducks the narration in
-milliseconds, before anyone knows what was said; Deepgram turns the frames into the
-words that become questions.
-"""
+"""The microphone: energy for ducking, Deepgram for words."""
 
 import array
 import asyncio
@@ -40,7 +35,7 @@ MIC_FRAME_CAPACITY = 100  # frames buffered per track before old ones are droppe
 
 
 class Listener:
-    """The child's microphone: ducks the narration, and turns speech into questions."""
+    """Two listeners on one microphone: energy for ducking, words for questions."""
 
     def __init__(
         self,
@@ -74,7 +69,7 @@ class Listener:
         ]
 
     def add_microphone(self, track: rtc.Track) -> None:
-        """Start forwarding a newly subscribed microphone track."""
+        """Called twice: for future tracks and for ones already there."""
         self._tasks.append(asyncio.create_task(self._forward(track)))
 
     async def aclose(self) -> None:
@@ -86,8 +81,7 @@ class Listener:
         await self._stt.aclose()
 
     async def _forward(self, track: rtc.Track) -> None:
-        """Pipe one track into the energy gate and the transcriber."""
-        # Room noise is removed once, before either path sees the frame.
+        """One track into both listeners, noise-cancelled once."""
         stream = rtc.AudioStream(
             track,
             capacity=MIC_FRAME_CAPACITY,
@@ -101,13 +95,12 @@ class Listener:
             await stream.aclose()
 
     def _gate(self, frame: rtc.AudioFrame) -> None:
-        """Duck while the room is loud, restore once it has been quiet a while."""
+        """The fast path: RMS, hysteresis, duck and un-duck."""
         samples = array.array("h", bytes(frame.data))
         if not samples:
             return
-        # RMS as a fraction of full scale, so the threshold does not depend on volume
-        # levels elsewhere. Ducking needs several loud frames, unducking needs a stretch
-        # of quiet: without that hysteresis the narration would flutter.
+
+        # RMS as a fraction of full scale, so the threshold is device-independent
         rms = math.sqrt(sum(s * s for s in samples) / len(samples)) / 32768
         seconds = len(samples) / frame.sample_rate / frame.num_channels
         if rms >= DUCK_RMS:
@@ -124,17 +117,14 @@ class Listener:
                 self._unduck()
 
     def _unduck(self) -> None:
-        """Bring the narration back, unless it has already stopped for a question."""
+        """Restore volume, unless the story already stopped."""
         if self._ducked:
             self._ducked = False
             if self._playing.is_set():
                 self._ramp.set(1.0, DUCK_DECAY_SECONDS)
 
     async def _publish(self) -> None:
-        """Write captions into the room one at a time.
-
-        Separate from the read loop so a slow network write cannot stall transcription.
-        """
+        """Write captions on a separate task so writes cannot stall reads."""
         while True:
             segment, text, final = await self._captions.get()
             try:
@@ -152,7 +142,7 @@ class Listener:
                 logger.exception("caption publish failed")
 
     async def _read(self) -> None:
-        """Turn transcription events into ducking, captions and questions."""
+        """The slow path: interim stops the story, final becomes a question."""
         try:
             async for event in self._stream:
                 if event.type == SpeechEventType.END_OF_SPEECH:
@@ -161,17 +151,14 @@ class Listener:
                 if not event.alternatives or not event.alternatives[0].text:
                     continue
                 text = event.alternatives[0].text
-                # An interim transcript is the earliest trustworthy sign the child is
-                # really speaking, so narration stops here rather than on the final one.
+
+                # interim is the earliest trustworthy sign the child really spoke
                 if event.type == SpeechEventType.INTERIM_TRANSCRIPT:
                     self._captions.put_nowait((self._segment, text, False))
                     self._spoke.set()
                     if self._playing.is_set():
                         self._playing.clear()
-                        # First loud frame to the narration stopping: the number that
-                        # decides whether interrupting feels natural or rude.
-                        # `event` is the loop variable here, so the module is called
-                        # by name rather than imported into the same scope.
+                        # barge-in latency, which decides if interrupting feels rude
                         observe.event(
                             logger,
                             "narration stopped",
@@ -189,6 +176,5 @@ class Listener:
         except Exception:
             logger.exception("transcription failed")
             self._unduck()
-            # An empty question unblocks the story loop, so a dead transcriber ends in
-            # the story carrying on rather than in silence.
+            # an empty question unblocks the loop, so a dead transcriber is not silence
             self._questions.put_nowait("")

@@ -21,8 +21,7 @@ dev = [
 ]
 
 [tool.ruff.lint]
-# Selected explicitly rather than inherited, so a ruff release changing its own defaults
-# cannot turn the build red without a line of code changing.
+# selected explicitly, so a ruff release changing its defaults cannot turn CI red
 select = ["E4", "E7", "E9", "F", "I", "B", "UP", "RUF"]
 
 [tool.pytest.ini_options]

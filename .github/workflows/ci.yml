@@ -25,8 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -f agent/Dockerfile -t kiplore-agent .
-      # Building only proves it compiles. This proves the worker can still find the
-      # story library, which is decided by the layout of the image.
+      # building proves it compiles; this proves the worker can find the library
       - name: the library resolves inside the image
         run: |
           docker run --rm kiplore-agent python -c \
@@ -45,7 +44,7 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
-      # Next generates the route and layout prop types, so tsc cannot run before it.
+      # Next generates the route and layout prop types, so tsc runs after it
       - run: npx next typegen
       - run: npx tsc --noEmit
       - run: npx eslint app lib components

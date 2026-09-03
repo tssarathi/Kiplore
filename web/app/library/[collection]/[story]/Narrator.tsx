@@ -10,13 +10,7 @@ import { useState } from "react";
 
 type Line = { mine: boolean; text: string };
 
-/**
- * The narrator's presence: a voice bar, the transport controls, and the one line
- * currently on screen.
- *
- * That line is either the caption the agent is broadcasting or the newest transcript,
- * whichever changed last.
- */
+/** One line on screen: the caption or the newest transcript, whichever changed last. */
 export default function Narrator({
   caption,
   status,
@@ -29,8 +23,7 @@ export default function Narrator({
   const { state, audioTrack, agent } = useVoiceAssistant();
   const transcriptions = useTranscriptions();
 
-  // Transcriptions are not guaranteed to arrive in order, so the newest is found by
-  // timestamp rather than by taking the last of the list.
+  // transcripts can arrive out of order, so the newest is found by timestamp
   const newest = transcriptions.reduce<TextStreamData | null>(
     (best, one) =>
       best === null || one.streamInfo.timestamp >= best.streamInfo.timestamp
@@ -47,12 +40,10 @@ export default function Narrator({
   const [seen, setSeen] = useState({ caption, spoken });
   const [line, setLine] = useState<Line | null>(null);
 
-  // Adjusted during render rather than in an effect. React re-runs the component at
-  // once, before anything is painted, so the line never lags a frame behind the audio.
+  // adjusted during render, not in an effect, so the line never lags a frame
   if (caption !== seen.caption || spoken !== seen.spoken) {
     setSeen({ caption, spoken });
-    // While the child is still mid-sentence their own words hold the line: replacing
-    // them with the story caption would read as not being heard.
+    // mid-sentence, their own words hold the line, or it reads as not being heard
     if (spoken !== seen.spoken && spoken !== null) {
       setLine({ mine, text: spoken });
     } else if (caption !== null && !midSentence) {

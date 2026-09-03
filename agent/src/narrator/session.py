@@ -1,9 +1,4 @@
-"""Holding the story when the listener drops, and putting it back where they left.
-
-Three phases. ACTIVE narrates, HELD waits out a network drop with the story parked
-where it was, LEFT tears the job down. A tab closed on purpose goes straight to LEFT;
-anything that might be a bad connection is held for a while first.
-"""
+"""What to do when the listener's connection dies."""
 
 import asyncio
 import logging
@@ -25,7 +20,7 @@ from narrator.player import Player
 
 logger = logging.getLogger("narrator")
 
-# Leaving on purpose ends the story. Every other reason might be a network drop.
+# leaving on purpose ends the story; any other reason might be a network drop
 CLEAN_LEAVES = frozenset(
     {
         rtc.DisconnectReason.CLIENT_INITIATED,
@@ -39,7 +34,7 @@ CLEAN_LEAVES = frozenset(
 
 
 class Phase(Enum):
-    """Whether the story is running, waiting for a reconnect, or over."""
+    """Three phases: narrating, waiting out a drop, or over."""
 
     ACTIVE = "active"
     HELD = "held"
@@ -73,13 +68,13 @@ class Session:
         self._changed = asyncio.Event()
 
     async def ready(self) -> None:
-        """Block while the story is held, until it resumes or the child is gone."""
+        """Block while held: the loop's only knowledge of reconnects."""
         while self.phase is Phase.HELD:
             self._changed.clear()
             await self._changed.wait()
 
     def dropped(self, reason: rtc.DisconnectReason.ValueType | None) -> None:
-        """Hold the story for a listener who vanished, or end it if they meant to go."""
+        """Rewind the queue, park the position, arm the timer."""
         if self.phase is Phase.LEFT:
             return
         if reason in CLEAN_LEAVES:
@@ -87,8 +82,8 @@ class Session:
             return
         if self.phase is Phase.HELD:
             return
-        # Rewind past audio queued but never heard, so the hold point is the last
-        # thing they actually heard rather than the last thing that was sent.
+
+        # parking the story at the last thing heard, not the last thing sent
         queued = self._source.queued_duration if self._playing.is_set() else 0.0
         self._playing.clear()
         self._spoke.set()
@@ -105,19 +100,15 @@ class Session:
         )
 
     def rejoined(self) -> None:
-        """Note a reconnect and give the client a window to report its position."""
+        """Coming back: open a window for the client to report its position."""
         if self.phase is not Phase.HELD:
             return
         self._arm(RESUME_REPORT_SECONDS, self._resume_unreported)
         logger.info("listener reconnected, awaiting position report")
 
     def report(self, seq: object, position: object, paused: object) -> int | None:
-        """Resume from where the client says it had got to.
-
-        Returns the sequence number to acknowledge, or None if the message is unusable.
-        Every field is checked because this arrives over the data channel from a client
-        the agent does not control.
-        """
+        """Validate everything, resume backwards only, acknowledge repeats."""
+        # every field checked: this comes from a client the agent does not control
         if self.phase is Phase.LEFT:
             return None
         if not isinstance(seq, int) or isinstance(seq, bool) or seq <= 0:
@@ -128,14 +119,14 @@ class Session:
             return None
         if not isinstance(paused, bool):
             return None
-        # The client retries until it is acknowledged, so a repeat is acknowledged
-        # again rather than applied twice.
+
+        # the client retries until acknowledged, so a repeat is acked, not applied
         if seq <= self._seq:
             return seq
         self._seq = seq
         self._disarm()
-        # Never trust a position ahead of what was actually sent: a client claiming
-        # more would skip part of the story.
+
+        # never a position ahead of what was sent; that would skip part of the story
         heard = self._player.position - self._source.queued_duration
         if position < heard or paused:
             self._source.clear_queue()
@@ -166,7 +157,7 @@ class Session:
         self._disarm()
 
     def _resume_unreported(self) -> None:
-        """Carry on from the agent's own position when no report ever arrived."""
+        """Carry on from the agent's own position when no report arrived."""
         if self.phase is not Phase.HELD:
             return
         self._ramp.snap(1.0)
@@ -178,13 +169,13 @@ class Session:
         self._changed.set()
 
     def _wake(self) -> None:
-        """Unblock the story loop, discarding anything asked before the drop."""
+        """Drain the queue and push the None sentinel."""
         while not self._questions.empty():
             self._questions.get_nowait()
         self._questions.put_nowait(None)
 
     def _arm(self, seconds: float, expire: Callable[[], None]) -> None:
-        """Start a one-shot timer, replacing any timer already running."""
+        """One-shot timer that always cancels the previous one."""
         self._disarm()
 
         async def countdown() -> None:

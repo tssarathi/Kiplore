@@ -1,4 +1,4 @@
-"""Reading a story and a voice off disk."""
+"""Reading a story file off disk."""
 
 import json
 
@@ -6,9 +6,8 @@ from narrator.config import LIBRARY_DIR
 
 
 def load_story(collection: str, story_id: str) -> dict:
-    """One story as {id, title, blurb, script}."""
-    # Both arguments come from the listener's join metadata, so resolve the path first
-    # to collapse any "..", then check it is still inside the library.
+    """Resolve the path, then prove it is inside the library."""
+    # both arguments arrive in the listener's join metadata
     path = (LIBRARY_DIR / collection / f"{story_id}.json").resolve()
     if not path.is_relative_to(LIBRARY_DIR.resolve()):
         raise ValueError(f"story is outside the library: {collection}/{story_id}")

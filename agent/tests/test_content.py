@@ -1,4 +1,4 @@
-"""Story ids arrive in the join metadata, so they are not to be trusted with a path."""
+"""Story ids arrive in join metadata, so a path is proved, not trusted."""
 
 import pytest
 

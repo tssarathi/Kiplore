@@ -24,7 +24,7 @@ def test_audio_tags_are_not_spoken_and_do_not_shift_the_words_after_them():
     words = words_from_chars(*timed("[warmly] Once upon a time"))
 
     assert [word["text"] for word in words] == ["Once", "upon", "a", "time"]
-    # "O" is the tenth character, so the first word starts at 0.9 and not at 0.0.
+    # "O" is the tenth character, so the first word starts at 0.9
     assert words[0]["start"] == 0.9
 
 
@@ -45,7 +45,7 @@ def test_the_story_so_far_stops_at_the_sentence_being_spoken():
 
     heard = heard_text([], segments, [], 1.5)
 
-    # The sentence in progress is included whole; the one after it is not.
+    # the sentence in progress is included whole, the one after it is not
     assert heard == "He ran. She hid."
     assert "won" not in heard
 
