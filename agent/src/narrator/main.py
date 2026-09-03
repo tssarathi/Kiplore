@@ -30,7 +30,7 @@ from narrator.alignment import (
     segment_at,
     spoken_text,
 )
-from narrator.answer import write_answer
+from narrator.answer import shape, write_answer
 from narrator.audio import (
     discard_queued,
     fill,
@@ -260,7 +260,9 @@ async def entrypoint(ctx: JobContext) -> None:
                     player.position,
                 )
                 await announce(ctx, "thinking")
-                answer = await write_answer(story["title"], heard, question, spoken)
+                answer = shape(
+                    await write_answer(story["title"], heard, question, spoken)
+                )
                 spoken.append(answer)
                 logger.info(f"answering {answer!r}")
                 # A reply ending in a question mark is the narrator asking the child

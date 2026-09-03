@@ -8,7 +8,23 @@ import os
 
 import aiohttp
 
-from narrator.config import ANSWER_MODEL, ANSWER_PROMPT, RECENT_ANSWERS
+from narrator.alignment import TAG
+from narrator.config import (
+    ANSWER_FALLBACK,
+    ANSWER_MODEL,
+    ANSWER_PROMPT,
+    RECENT_ANSWERS,
+)
+
+
+def shape(answer: str) -> str:
+    """Strip anything the synthesiser would act on rather than say.
+
+    The prompt forbids brackets and asterisks, and the model mostly obeys. When it does
+    not, the cost is not cosmetic: a bracketed word is a v3 audio tag, so a stray
+    "[whispers]" changes how the rest of the reply is delivered.
+    """
+    return TAG.sub("", answer).replace("*", "").strip() or ANSWER_FALLBACK
 
 
 async def write_answer(

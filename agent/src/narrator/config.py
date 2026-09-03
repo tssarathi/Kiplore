@@ -130,6 +130,10 @@ them again, and do not say anything close to them. Reach for different words.
 
 Now reply to the child."""
 
+# Spoken when there is nothing left of the answer to say. Warm, ends on a statement,
+# and promises nothing, since the story carries on the moment it finishes.
+ANSWER_FALLBACK = "Mm, I am not sure about that one."
+
 # Sent with every request and folded into the cache key. Stability 0.5 is ElevenLabs'
 # Natural setting, which they recommend for audio tag adherence.
 VOICE_SETTINGS = {
