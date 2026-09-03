@@ -1,120 +1,187 @@
-# Kiplore
+<h1 align="center">Kiplore</h1>
 
-Bedtime stories that stop when a child asks why.
+<p align="center">
+  A voice application that reads folk tales aloud to a child and answers their questions
+  in the middle of the story.
+</p>
 
-A narrator reads a folk tale aloud. The child can interrupt out loud at any moment — the
-narration ducks, the question is answered in the same voice, and the story picks up where
-it left off.
+<p align="center">
+  <a href="#features"><strong>Features</strong></a> ·
+  <a href="#how-it-works"><strong>How it works</strong></a> ·
+  <a href="#getting-started"><strong>Getting started</strong></a> ·
+  <a href="#story-format"><strong>Story format</strong></a> ·
+  <a href="#project-layout"><strong>Project layout</strong></a>
+</p>
 
-![Kiplore: browsing the library and playing a story](docs/demo.gif)
+<p align="center">
+  <img alt="Next.js 16" src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white">
+  <img alt="React 19" src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black">
+  <img alt="Python 3.13" src="https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white">
+  <img alt="LiveKit Agents 1.7" src="https://img.shields.io/badge/LiveKit%20Agents-1.7-1FD5F9?logo=livekit&logoColor=white">
+</p>
+
+<p align="center">
+  <img alt="Browsing the library, choosing a voice, and playing a story with live captions and transport controls" src="docs/demo.gif" width="100%">
+</p>
+
+## Features
+
+- **Interrupt with your voice.** The child can speak at any point. Frame energy ducks the
+  narration immediately, and the first interim transcript stops playback properly.
+- **Answers that cannot spoil the story.** The model is given only the text narrated so
+  far, so it is unable to reveal events the child has not yet reached.
+- **Captions derived from the audio.** Character level timings returned by the synthesiser
+  are grouped into sentences, so the line on screen is the line being spoken rather than an
+  estimate based on elapsed time.
+- **Transport controls.** Pause, resume and ten second seeks, applied by the agent and
+  reflected back to every client.
+- **Resume after a dropped connection.** The room is held open for 60 seconds. On return,
+  the client reports the last position it heard and playback continues from there.
+- **Deterministic render cache.** Completed narrations are cached in object storage under a
+  hash of every input that shaped them, so a stale render cannot be served.
+- **Quality gates before caching.** Speech density, silence length and alignment coverage
+  are all checked before a render is allowed into the cache.
 
 ## How it works
 
-The child's browser and a Python worker meet in a LiveKit room. The worker is the narrator.
+The browser and a Python worker meet in a LiveKit room. The worker is the narrator: it
+publishes an audio track, streams synthesised speech into it, listens to the child's
+microphone, and answers when spoken to.
 
 ```
-web (Next.js)  ──token──▶  LiveKit room  ◀──audio+data──  agent (Python)
-                                                            │
-                              ElevenLabs ── narration ──────┤
-                              Deepgram ──── the question ───┤
-                              OpenAI ────── the answer ─────┤
-                              R2 ────────── render cache ───┘
+web (Next.js)  ──token──▶  LiveKit room  ◀──audio + data──  agent (Python)
+                                                              │
+                                ElevenLabs ── narration ──────┤
+                                Deepgram ──── transcription ──┤
+                                OpenAI ────── answers ────────┤
+                                Cloudflare R2 ─ render cache ─┘
 ```
 
-**Narration.** ElevenLabs streams the story as PCM with character-level timings. Those
-timings become caption segments, so the line on screen is the line being spoken — not a
-guess based on elapsed time.
+### Narration and captions
 
-**Interruption.** Deepgram listens continuously. Frame energy ducks the narration the
-instant the child speaks; an interim transcript stops it properly. The question goes to
-OpenAI with only the story *so far*, so the narrator can never spoil what has not been
-read yet. The answer is spoken in the same voice, then the story resumes from the start of
+ElevenLabs streams each story as PCM audio together with character level timings. Those
+timings are grouped into words and then into sentence segments, which the agent broadcasts
+to the client roughly once per second alongside the playback position.
+
+### Interruption and answering
+
+Deepgram transcribes the microphone continuously. Two signals are used, at different
+latencies: frame energy ducks the narration volume as soon as speech is detected, and the
+first interim transcript stops playback.
+
+The question is then sent to OpenAI together with the story text heard so far. If the
+speech was not understood, the narrator asks the child to repeat it instead of guessing.
+The reply is synthesised in the same voice, after which playback resumes from the start of
 the interrupted sentence.
 
-**Caching.** A finished render is stored in R2, keyed by a hash of everything that shaped
-it — script, voice, model, output format, voice settings, seed, chunk gap, pipeline
-version. Change any of them and the key changes, so a stale render can never be served.
-Renders are quality-checked before they are cached: speech density, longest silence, and
-alignment coverage all have to pass.
+### Render cache
 
-**Reconnects.** If the browser drops, the room is held open briefly. On return, the client
-reports the last position it heard and the story resumes from there.
+A completed render is stored in Cloudflare R2 under a key derived from a SHA-256 hash of
+the script, voice, model, output format, voice settings, seed, chunk gap and pipeline
+version. Changing any of these produces a different key.
 
-## Layout
+Renders are quality checked before being cached. A render is rejected if its speech density
+falls outside 6 to 25 characters per second, if it contains a silence longer than two
+seconds, or if the character alignment covers less than 85 percent of the audio. A rejected
+render is still played to the listener, but it is not stored.
 
+## Getting started
+
+### Prerequisites
+
+- Python 3.13 or later, with [uv](https://docs.astral.sh/uv/)
+- Node.js 20 or later
+- Accounts for LiveKit, ElevenLabs, Deepgram, OpenAI and Cloudflare R2
+
+### Configuration
+
+| Variable | Required by | Purpose |
+| --- | --- | --- |
+| `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | agent, web | Room connection and access token signing |
+| `ELEVENLABS_API_KEY` | agent | Speech synthesis |
+| `DEEPGRAM_API_KEY` | agent | Transcription |
+| `OPENAI_API_KEY` | agent | Answer generation |
+| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | agent | Render cache |
+
+Place all of the above in `agent/.env`, and the three `LIVEKIT_` values in `web/.env.local`.
+
+### Running locally
+
+Start the agent worker and the web application in separate terminals.
+
+```bash
+cd agent
+uv run python -m narrator.main dev
 ```
-agent/src/narrator/    the LiveKit worker
-  main.py              job entrypoint, control loop, broadcast
-  render.py            ElevenLabs streaming synthesis
-  alignment.py         character timings to words, sentences, captions
-  listen.py            Deepgram STT, ducking, transcript publishing
-  answer.py            the reply to a child's question
-  cache.py  qc.py      R2 render cache and its quality gates
-  audio.py  player.py  envelope.py  session.py
 
-web/                   Next.js 16 App Router, Tailwind v4
-  app/page.tsx                        collections
-  app/library/[collection]/           stories in one collection
-  app/library/[collection]/[story]/   the player
-  app/api/session/route.ts            LiveKit token (development only)
-
-library/               the stories themselves, as JSON
+```bash
+cd web
+npm install
+npm run dev
 ```
 
-## The library
+The application is then available at http://localhost:3000.
 
-Each story is one JSON file: `id`, `title`, `blurb`, and a `script` of seven chunks.
-Collections are just directories.
+The first playback of a story synthesises it, which takes a few seconds and consumes
+ElevenLabs credits. Later playbacks of the same story and voice are served from the cache.
+
+## Story format
+
+Each story is a single JSON file containing an identifier, title, blurb and a script of
+seven chunks. Collections are directories under `library/`.
 
 ```json
 {
   "id": "the-tortoise-and-the-hare",
   "title": "The Tortoise and the Hare",
   "blurb": "The fastest animal in the wood takes a nap. That is his mistake.",
-  "script": ["[warmly] Long, long ago… ", "..."]
+  "script": ["[warmly] Long, long ago…", "..."]
 }
 ```
 
-The bracketed tags are [ElevenLabs v3 audio tags](https://elevenlabs.io/docs/best-practices/prompting/eleven-v3).
-They direct delivery and are stripped before anything reaches the screen. Three things
-worth knowing before editing a script:
+Bracketed tags are [ElevenLabs v3 audio tags](https://elevenlabs.io/docs/best-practices/prompting/eleven-v3).
+They direct vocal delivery and are removed before any text reaches the screen. Three
+constraints apply when editing a script.
 
-- **v3 is the only model that supports tags.** Switching to Flash or Multilingual makes
-  them get read aloud or ignored.
-- **The limit is 5,000 characters per request**, and a story is sent as one request.
-- **`[short pause]` and `[long pause]` are real; SSML `<break>` is not.** Ellipses carry
-  most of the pacing, and capitals carry emphasis.
+| Constraint | Detail |
+| --- | --- |
+| Model | Eleven v3 is the only model that supports audio tags. Flash and Multilingual will speak them aloud or ignore them. |
+| Length | 5,000 characters per request, and each story is sent as a single request. |
+| Pauses | `[pause]`, `[short pause]` and `[long pause]` are supported. SSML break tags are not. Ellipses control pacing and capitalisation controls emphasis. |
 
-Twelve stories ship here, all public domain: Aesop, the Brothers Grimm, Hans Andersen, and
-Kipling's *Just So Stories*.
+Twelve stories are included, all in the public domain: Aesop's fables, tales from the
+Brothers Grimm and Hans Andersen, and Kipling's *Just So Stories*.
 
-## Running it
-
-Needs Python 3.13+, Node 20+, and accounts for LiveKit, ElevenLabs, Deepgram, OpenAI and
-Cloudflare R2.
-
-`agent/.env`:
+## Project layout
 
 ```
-LIVEKIT_URL=            LIVEKIT_API_KEY=       LIVEKIT_API_SECRET=
-ELEVENLABS_API_KEY=     DEEPGRAM_API_KEY=      OPENAI_API_KEY=
-R2_ACCOUNT_ID=          R2_ACCESS_KEY_ID=      R2_SECRET_ACCESS_KEY=      R2_BUCKET=
+agent/src/narrator/
+  main.py          job entrypoint, control loop, state broadcast
+  render.py        ElevenLabs streaming synthesis
+  alignment.py     character timings to words, sentences and captions
+  listen.py        Deepgram transcription, ducking, transcript publishing
+  answer.py        answer generation
+  cache.py         R2 render cache
+  qc.py            quality gates applied before caching
+  audio.py         track publishing and playback
+  player.py        playback position and seeking
+  envelope.py      volume ramping
+  session.py       reconnect and resume state
+  config.py        all tunable values
+
+web/
+  app/page.tsx                       collection index
+  app/library/[collection]/          stories within a collection
+  app/library/[collection]/[story]/  the player
+  app/api/session/route.ts           LiveKit access token, development only
+  lib/content.ts                     library loading
+  lib/storyState.ts                  message validation
+
+library/           story content as JSON, one directory per collection
 ```
 
-`web/.env.local` needs the three `LIVEKIT_` values only.
+## Limitations
 
-Two terminals:
-
-```bash
-cd agent && uv run python -m narrator.main dev
-cd web   && npm install && npm run dev
-```
-
-Then open <http://localhost:3000>. The first play of a story synthesises it, which takes a
-few seconds and costs ElevenLabs credits; after that it comes from the cache.
-
-## Scope
-
-A single-user demo. There is no auth, no accounts, and nothing is persisted between
-sessions. The token route refuses to run outside development and would need real
-authentication before this was exposed to anyone.
+This is a single user demonstration. There is no authentication, no user accounts and no
+persistence between sessions. The token endpoint returns 403 outside development and would
+require proper authentication before the application could be exposed publicly.
