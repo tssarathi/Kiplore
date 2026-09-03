@@ -16,5 +16,6 @@
     "**/graphify-out": true,
     "**/.ruff_cache": true
   },
+  "css.lint.unknownAtRules": "ignore",
   "python-envs.defaultEnvManager": "ms-python.python:system"
 }

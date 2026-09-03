@@ -2,6 +2,7 @@ export type StoryState = {
   type: "state";
   seq: number;
   position: number;
+  duration: number;
   paused: boolean;
   caption: string | null;
 };
@@ -24,7 +25,7 @@ export function parseServerMessage(
     return null;
   }
   if (typeof value !== "object" || value === null) return null;
-  const { type, seq, position, paused, caption } = value as Record<
+  const { type, seq, position, duration, paused, caption } = value as Record<
     string,
     unknown
   >;
@@ -37,7 +38,26 @@ export function parseServerMessage(
   ) {
     return null;
   }
+  if (
+    typeof duration !== "number" ||
+    !Number.isFinite(duration) ||
+    duration < 0
+  ) {
+    return null;
+  }
   if (typeof paused !== "boolean") return null;
   if (caption !== null && typeof caption !== "string") return null;
-  return { type: "state", seq: seq as number, position, paused, caption };
+  return {
+    type: "state",
+    seq: seq as number,
+    position,
+    duration,
+    paused,
+    caption,
+  };
+}
+
+export function formatTime(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }

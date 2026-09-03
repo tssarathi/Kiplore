@@ -1,5 +1,20 @@
 [
-  { "id": "tanksinker", "name": "Tanksinker", "elevenLabsId": "YrAYvOVjAFiqVwBgB4qI" },
-  { "id": "james", "name": "James", "elevenLabsId": "EkK5I93UQWFDigLMpZcX" },
-  { "id": "jane", "name": "Jane", "elevenLabsId": "RILOU7YmBhvwJGDGjNmP" }
+  {
+    "id": "tanksinker",
+    "name": "Tanksinker",
+    "elevenLabsId": "YrAYvOVjAFiqVwBgB4qI",
+    "look": "elder"
+  },
+  {
+    "id": "jane",
+    "name": "Jane",
+    "elevenLabsId": "RILOU7YmBhvwJGDGjNmP",
+    "look": "woman"
+  },
+  {
+    "id": "james",
+    "name": "James",
+    "elevenLabsId": "EkK5I93UQWFDigLMpZcX",
+    "look": "man"
+  }
 ]

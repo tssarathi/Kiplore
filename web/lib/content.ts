@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 export type Story = {
@@ -8,10 +8,17 @@ export type Story = {
   script: string[];
 };
 
+export type Collection = {
+  id: string;
+  title: string;
+  count: number;
+};
+
 export type Voice = {
   id: string;
   name: string;
   elevenLabsId: string;
+  look: "elder" | "woman" | "man";
 };
 
 const LIBRARY_DIR = path.join(process.cwd(), "..", "library");
@@ -36,4 +43,45 @@ export async function getStory(
   } catch {
     return null;
   }
+}
+
+export function titleOf(id: string): string {
+  return id
+    .split("-")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+export async function getCollections(): Promise<Collection[]> {
+  const entries = await readdir(LIBRARY_DIR, { withFileTypes: true });
+  const collections = await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory() && NAME.test(entry.name))
+      .map(async (entry) => ({
+        id: entry.name,
+        title: titleOf(entry.name),
+        count: (await getStories(entry.name)).length,
+      })),
+  );
+  return collections
+    .filter((collection) => collection.count > 0)
+    .sort((a, b) => a.title.localeCompare(b.title));
+}
+
+export async function getStories(collection: string): Promise<Story[]> {
+  if (!NAME.test(collection)) return [];
+  let names: string[];
+  try {
+    names = await readdir(path.join(LIBRARY_DIR, collection));
+  } catch {
+    return [];
+  }
+  const stories = await Promise.all(
+    names
+      .filter((name) => name.endsWith(".json"))
+      .map((name) => getStory(collection, name.slice(0, -5))),
+  );
+  return stories
+    .filter((story): story is Story => story !== null)
+    .sort((a, b) => a.title.localeCompare(b.title));
 }

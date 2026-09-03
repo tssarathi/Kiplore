@@ -1,1 +1,57 @@
 @import "tailwindcss";
+
+@theme inline {
+  --font-display: var(--font-bodoni), Georgia, serif;
+  --font-mono: var(--font-fragment), ui-monospace, monospace;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  --color-paper: #f4f4f4;
+  --color-card: #ffffff;
+  --color-ink: #282926;
+  --color-graphite: #282926;
+  --color-quiet: #4a4b46;
+  --color-rule: #e6e6e6;
+  --color-accent: #5f5aff;
+  --color-sage: #759093;
+}
+
+@layer components {
+  .display {
+    font-family: var(--font-display);
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: -0.04em;
+    line-height: 0.95;
+  }
+
+  .label {
+    font-family: var(--font-mono);
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: -0.04em;
+    line-height: 1.2;
+  }
+
+  .mono {
+    font-family: var(--font-mono);
+    font-weight: 400;
+    letter-spacing: -0.04em;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+body {
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}

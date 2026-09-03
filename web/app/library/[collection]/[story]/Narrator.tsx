@@ -10,7 +10,15 @@ import { useState } from "react";
 
 type Line = { mine: boolean; text: string };
 
-export default function Narrator({ caption }: { caption: string | null }) {
+export default function Narrator({
+  caption,
+  status,
+  children,
+}: {
+  caption: string | null;
+  status: string;
+  children: React.ReactNode;
+}) {
   const { state, audioTrack, agent } = useVoiceAssistant();
   const transcriptions = useTranscriptions();
 
@@ -41,10 +49,33 @@ export default function Narrator({ caption }: { caption: string | null }) {
 
   return (
     <div>
-      <BarVisualizer state={state} track={audioTrack} barCount={7} />
-      <p>
-        {line?.mine ? "You: " : ""}
-        {line?.text}
+      <BarVisualizer
+        state={state}
+        track={audioTrack}
+        barCount={5}
+        className="flex h-16 items-end justify-center gap-1.5"
+      >
+        <div className="w-1 bg-rule transition-colors duration-200 data-[lk-highlighted=true]:bg-accent" />
+      </BarVisualizer>
+
+      {children}
+
+      <p
+        aria-live="polite"
+        className="mono mt-8 min-h-12 text-center text-sm leading-relaxed text-balance"
+      >
+        {line ? (
+          <>
+            {line.mine && (
+              <span className="label mr-2 text-xs text-accent">You —</span>
+            )}
+            <span className={line.mine ? "text-quiet" : "text-ink"}>
+              {line.text}
+            </span>
+          </>
+        ) : (
+          <span className="label text-xs text-quiet">{status}</span>
+        )}
       </p>
     </div>
   );
