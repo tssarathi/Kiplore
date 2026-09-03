@@ -114,7 +114,7 @@ async def load(at: str) -> tuple[bytes, Timings] | None:
 
 
 def _save(at: str, pcm: bytes, timings: Timings, spoken: str) -> str | None:
-    reason = qc.inspect(pcm, spoken, timings.segments)
+    reason = qc.inspect(pcm, spoken, timings.segments, timings.chunk_timings)
     if reason is not None:
         return reason
     client = _client()

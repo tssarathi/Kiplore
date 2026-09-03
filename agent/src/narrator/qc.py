@@ -14,21 +14,30 @@ from narrator.config import (
 )
 
 
-def longest_silence(samples: array.array) -> float:
+def longest_silence(samples: array.array, boundaries: list[float]) -> float:
     window = int(SAMPLE_RATE * SILENCE_WINDOW_SECONDS)
     quiet = SILENCE_RMS * 32768
-    longest = run = 0
+    longest, began = 0.0, None
+
+    def measure(end: float) -> float:
+        if began is None or any(began <= edge <= end for edge in boundaries):
+            return 0.0
+        return end - began
+
     for start in range(0, len(samples) - window, window):
+        at = start / SAMPLE_RATE
         block = samples[start : start + window]
         if math.sqrt(sum(s * s for s in block) / window) < quiet:
-            run += 1
-            longest = max(longest, run)
-        else:
-            run = 0
-    return longest * SILENCE_WINDOW_SECONDS
+            if began is None:
+                began = at
+            continue
+        longest, began = max(longest, measure(at)), None
+    return max(longest, measure(len(samples) / SAMPLE_RATE))
 
 
-def inspect(pcm: bytes, spoken: str, segments: list[dict]) -> str | None:
+def inspect(
+    pcm: bytes, spoken: str, segments: list[dict], boundaries: list[float]
+) -> str | None:
     samples = array.array("h", pcm)
     seconds = len(samples) / SAMPLE_RATE
     if seconds <= 0:
@@ -38,7 +47,7 @@ def inspect(pcm: bytes, spoken: str, segments: list[dict]) -> str | None:
     if not MIN_CHARS_PER_SECOND <= density <= MAX_CHARS_PER_SECOND:
         return f"speech density is {density:.1f} characters per second"
 
-    silence = longest_silence(samples)
+    silence = longest_silence(samples, boundaries)
     if silence > MAX_SILENCE_SECONDS:
         return f"a silence of {silence:.1f}s"
 
