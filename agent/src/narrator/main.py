@@ -8,6 +8,13 @@ import logging
 from dotenv import load_dotenv
 from livekit import agents, rtc
 from livekit.agents import AgentServer, JobContext
+from livekit.agents.types import (
+    ATTRIBUTE_AGENT_STATE,
+    ATTRIBUTE_TRANSCRIPTION_FINAL,
+    ATTRIBUTE_TRANSCRIPTION_SEGMENT_ID,
+    TOPIC_TRANSCRIPTION,
+)
+from livekit.agents.utils import shortuuid
 
 from narrator import cache
 from narrator.alignment import (
@@ -28,6 +35,7 @@ from narrator.audio import (
     speak_reply,
 )
 from narrator.config import (
+    CLARIFY_WAIT_SECONDS,
     RESUME_BREATH_SECONDS,
     RESUME_FADE_FROM,
     RESUME_FADE_SECONDS,
@@ -50,16 +58,44 @@ async def broadcast(
 ) -> None:
     for seq in itertools.count(1):
         segment = segment_at(timings.segments, player.position)
+        speaking = segment is not None and player.position < segment["end"]
         payload = json.dumps(
             {
                 "seq": seq,
                 "position": round(player.position, 1),
                 "paused": not paused.is_set(),
-                "caption": segment["text"] if segment else None,
+                "caption": segment["text"] if speaking else None,
             }
         )
         await ctx.room.local_participant.publish_data(payload, reliable=False)
         await asyncio.sleep(1)
+
+
+async def announce(ctx: JobContext, state: str) -> None:
+    await ctx.room.local_participant.set_attributes({ATTRIBUTE_AGENT_STATE: state})
+
+
+async def next_question(
+    questions: asyncio.Queue[str | None], within: float | None
+) -> str | None:
+    if within is None:
+        return await questions.get()
+    try:
+        return await asyncio.wait_for(questions.get(), within)
+    except TimeoutError:
+        return ""
+
+
+async def caption(ctx: JobContext, text: str) -> None:
+    writer = await ctx.room.local_participant.stream_text(
+        topic=TOPIC_TRANSCRIPTION,
+        attributes={
+            ATTRIBUTE_TRANSCRIPTION_SEGMENT_ID: shortuuid("SG_"),
+            ATTRIBUTE_TRANSCRIPTION_FINAL: "true",
+        },
+    )
+    await writer.write(text)
+    await writer.aclose()
 
 
 def resume_point(timings: Timings, position: float) -> float:
@@ -79,6 +115,7 @@ async def entrypoint(ctx: JobContext) -> None:
     player = Player()
     ramp = GainRamp()
     acks: set[asyncio.Task[None]] = set()
+    spoken: list[str] = []
 
     await ctx.connect()
     source = await publish_voice(ctx)
@@ -130,7 +167,9 @@ async def entrypoint(ctx: JobContext) -> None:
         f"listener={listener.identity} story={story['title']!r} voice={voice['name']}"
     )
 
-    ears = Listener(story["script"], playing, spoke, questions, ramp)
+    ears = Listener(
+        story["script"], ctx.room, listener.identity, playing, spoke, questions, ramp
+    )
     ctx.room.on("track_subscribed", lambda track, *_: ears.add_microphone(track))
     for publication in listener.track_publications.values():
         if publication.track is not None:
@@ -159,35 +198,59 @@ async def entrypoint(ctx: JobContext) -> None:
             if session.phase is Phase.LEFT:
                 break
             playing.set()
+            await announce(ctx, "speaking")
             await play(source, player, playing, paused, ramp, producer)
             if playing.is_set():
                 break
             logger.info(f"rewound {discard_queued(source, player):.2f}s of queued audio")
+            await announce(ctx, "listening")
 
-            while question := await questions.get():
+            waiting: float | None = None
+            carried: dict | None = None
+            while question := await next_question(questions, waiting):
                 heard = heard_text(
                     story["script"],
                     timings.segments,
                     timings.chunk_timings,
                     player.position,
                 )
-                answer = await write_answer(story["title"], heard, question)
+                await announce(ctx, "thinking")
+                answer = await write_answer(story["title"], heard, question, spoken)
+                spoken.append(answer)
                 logger.info(f"answering {answer!r}")
-                replied = await speak_reply(
-                    source, stream_answer(answer, voice["elevenLabsId"]), spoke
+                asked_again = answer.rstrip().endswith("?")
+                carried = (
+                    None
+                    if asked_again
+                    else segment_at(timings.segments, player.position)
                 )
-                if replied:
+                said = f"{answer} {carried['text']}" if carried else answer
+                await caption(ctx, said)
+                await announce(ctx, "speaking")
+                replied = await speak_reply(
+                    source, stream_answer(said, voice["elevenLabsId"]), spoke
+                )
+                if not replied:
+                    carried = None
+                    logger.info("answer interrupted")
+                    await announce(ctx, "listening")
+                    waiting = None
+                    continue
+                if not asked_again:
                     break
-                logger.info("answer interrupted")
+                logger.info("asked again, waiting for the child")
+                await announce(ctx, "listening")
+                waiting = CLARIFY_WAIT_SECONDS
             if question is None:
                 continue
 
             await asyncio.sleep(RESUME_BREATH_SECONDS)
-            player.seek(
-                seconds_to_bytes(
-                    resume_point(timings, player.position) - player.position
-                )
+            target = (
+                carried["end"]
+                if carried
+                else resume_point(timings, player.position)
             )
+            player.seek(seconds_to_bytes(target - player.position))
             ramp.snap(RESUME_FADE_FROM)
             ramp.set(1.0, RESUME_FADE_SECONDS)
 

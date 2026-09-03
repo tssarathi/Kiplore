@@ -4,11 +4,16 @@ import os
 
 import aiohttp
 
-from narrator.config import ANSWER_MODEL, ANSWER_PROMPT
+from narrator.config import ANSWER_MODEL, ANSWER_PROMPT, RECENT_ANSWERS
 
 
-async def write_answer(title: str, story_so_far: str, question: str) -> str:
-    prompt = ANSWER_PROMPT.format(title=title, story_so_far=story_so_far)
+async def write_answer(
+    title: str, story_so_far: str, question: str, spoken: list[str]
+) -> str:
+    recent = "\n".join(f"- {reply}" for reply in spoken[-RECENT_ANSWERS:])
+    prompt = ANSWER_PROMPT.format(
+        title=title, story_so_far=story_so_far, recent=recent or "- (nothing yet)"
+    )
     async with aiohttp.ClientSession() as session:
         async with session.post(
             "https://api.openai.com/v1/chat/completions",

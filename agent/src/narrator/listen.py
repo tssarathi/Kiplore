@@ -6,8 +6,13 @@ import logging
 import math
 
 from livekit import rtc
-from livekit.agents import APIConnectOptions
 from livekit.agents.stt import SpeechEventType
+from livekit.agents.types import (
+    ATTRIBUTE_TRANSCRIPTION_FINAL,
+    ATTRIBUTE_TRANSCRIPTION_SEGMENT_ID,
+    TOPIC_TRANSCRIPTION,
+)
+from livekit.agents.utils import shortuuid
 from livekit.plugins import deepgram, noise_cancellation
 
 from narrator.alignment import keyterms
@@ -24,7 +29,6 @@ from narrator.envelope import GainRamp
 
 logger = logging.getLogger("narrator")
 
-CALL_OPTIONS = APIConnectOptions(max_retry=0, timeout=10.0)
 MIC_FRAME_CAPACITY = 100
 
 
@@ -32,6 +36,8 @@ class Listener:
     def __init__(
         self,
         script: list[str],
+        room: rtc.Room,
+        identity: str,
         playing: asyncio.Event,
         spoke: asyncio.Event,
         questions: asyncio.Queue[str | None],
@@ -40,7 +46,9 @@ class Listener:
         self._stt = deepgram.STTv2(
             keyterm=keyterms(script), eot_threshold=EOT_THRESHOLD
         )
-        self._stream = self._stt.stream(conn_options=CALL_OPTIONS)
+        self._stream = self._stt.stream()
+        self._room = room
+        self._identity = identity
         self._playing = playing
         self._spoke = spoke
         self._questions = questions
@@ -48,7 +56,12 @@ class Listener:
         self._loud = 0
         self._quiet = 0.0
         self._ducked = False
-        self._tasks: list[asyncio.Task[None]] = [asyncio.create_task(self._read())]
+        self._segment = shortuuid("SG_")
+        self._captions: asyncio.Queue[tuple[str, str, bool]] = asyncio.Queue()
+        self._tasks: list[asyncio.Task[None]] = [
+            asyncio.create_task(self._read()),
+            asyncio.create_task(self._publish()),
+        ]
 
     def add_microphone(self, track: rtc.Track) -> None:
         self._tasks.append(asyncio.create_task(self._forward(track)))
@@ -97,6 +110,23 @@ class Listener:
             if self._playing.is_set():
                 self._ramp.set(1.0, DUCK_DECAY_SECONDS)
 
+    async def _publish(self) -> None:
+        while True:
+            segment, text, final = await self._captions.get()
+            try:
+                writer = await self._room.local_participant.stream_text(
+                    topic=TOPIC_TRANSCRIPTION,
+                    sender_identity=self._identity,
+                    attributes={
+                        ATTRIBUTE_TRANSCRIPTION_SEGMENT_ID: segment,
+                        ATTRIBUTE_TRANSCRIPTION_FINAL: "true" if final else "false",
+                    },
+                )
+                await writer.write(text)
+                await writer.aclose()
+            except Exception:
+                logger.exception("caption publish failed")
+
     async def _read(self) -> None:
         try:
             async for event in self._stream:
@@ -107,12 +137,15 @@ class Listener:
                     continue
                 text = event.alternatives[0].text
                 if event.type == SpeechEventType.INTERIM_TRANSCRIPT:
+                    self._captions.put_nowait((self._segment, text, False))
                     self._spoke.set()
                     if self._playing.is_set():
                         self._playing.clear()
                         logger.info("narration stopped")
                 elif event.type == SpeechEventType.FINAL_TRANSCRIPT:
                     logger.info(f"heard {text!r}")
+                    self._captions.put_nowait((self._segment, text, True))
+                    self._segment = shortuuid("SG_")
                     self._questions.put_nowait(text)
         except asyncio.CancelledError:
             raise
