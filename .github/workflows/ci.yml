@@ -33,6 +33,8 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
+      # Next generates the route and layout prop types, so tsc cannot run before it.
+      - run: npx next typegen
       - run: npx tsc --noEmit
       - run: npx eslint app lib components
       - run: npm test
