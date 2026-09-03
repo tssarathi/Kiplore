@@ -13,6 +13,7 @@ from narrator.config import (
     ANSWER_FALLBACK,
     ANSWER_MODEL,
     ANSWER_PROMPT,
+    ANSWER_TIMEOUT_SECONDS,
     RECENT_ANSWERS,
 )
 
@@ -37,7 +38,9 @@ async def write_answer(
     prompt = ANSWER_PROMPT.format(
         title=title, story_so_far=story_so_far, recent=recent or "- (nothing yet)"
     )
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(
+        timeout=aiohttp.ClientTimeout(total=ANSWER_TIMEOUT_SECONDS)
+    ) as session:
         async with session.post(
             "https://api.openai.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"},

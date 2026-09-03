@@ -10,6 +10,8 @@ import asyncio
 import itertools
 import json
 import logging
+import time
+from collections.abc import AsyncIterator
 
 from dotenv import load_dotenv
 from livekit import agents, rtc
@@ -22,7 +24,7 @@ from livekit.agents.types import (
 )
 from livekit.agents.utils import shortuuid
 
-from narrator import cache
+from narrator import cache, observe
 from narrator.alignment import (
     Timings,
     chunk_start,
@@ -41,6 +43,7 @@ from narrator.audio import (
     speak_reply,
 )
 from narrator.config import (
+    ANSWER_FALLBACK,
     CLARIFY_WAIT_SECONDS,
     RESUME_BREATH_SECONDS,
     RESUME_FADE_FROM,
@@ -118,6 +121,20 @@ async def caption(ctx: JobContext, text: str) -> None:
     await writer.aclose()
 
 
+async def timed(chunks: AsyncIterator[bytes], started: float) -> AsyncIterator[bytes]:
+    """Pass a render through, noting how long the child waited to hear anything.
+
+    A cache hit answers in milliseconds and a live render takes seconds, so this one
+    number is the difference between the two as the child experiences it.
+    """
+    first = True
+    async for chunk in chunks:
+        if first:
+            observe.event(logger, "first audio", seconds=observe.since(started))
+            first = False
+        yield chunk
+
+
 def resume_point(timings: Timings, position: float) -> float:
     """Where to pick the story up: the interrupted sentence, or failing that its chunk.
 
@@ -133,6 +150,8 @@ def resume_point(timings: Timings, position: float) -> float:
 @server.rtc_session()
 async def entrypoint(ctx: JobContext) -> None:
     """Narrate one story to one child, from connection to teardown."""
+    started = time.monotonic()
+    answers = 0
     # Two events, distinct on purpose. `playing` down means the child interrupted;
     # `paused` down means they pressed pause. Both stop the audio, only one is a
     # question. `spoke` is the barge-in signal that cuts an answer short.
@@ -147,6 +166,10 @@ async def entrypoint(ctx: JobContext) -> None:
     spoken: list[str] = []
 
     await ctx.connect()
+    # Configured here rather than at import: the LiveKit CLI installs its own handlers
+    # first, and the room name is the only session identifier that exists yet.
+    observe.setup()
+    observe.session.set(ctx.room.name)
     source = await publish_voice(ctx)
     session = Session(source, player, playing, paused, spoke, questions, ramp)
 
@@ -228,7 +251,7 @@ async def entrypoint(ctx: JobContext) -> None:
 
     # Rendering, reporting and playback all run at once: the story starts on the first
     # chunk rather than waiting for the last.
-    producer = asyncio.create_task(fill(player, chunks))
+    producer = asyncio.create_task(fill(player, timed(chunks, started)))
     broadcaster = asyncio.create_task(broadcast(ctx, player, timings, paused))
 
     try:
@@ -253,6 +276,7 @@ async def entrypoint(ctx: JobContext) -> None:
             waiting: float | None = None
             carried: dict | None = None
             while question := await next_question(questions, waiting):
+                asked = time.monotonic()
                 heard = heard_text(
                     story["script"],
                     timings.segments,
@@ -260,9 +284,16 @@ async def entrypoint(ctx: JobContext) -> None:
                     player.position,
                 )
                 await announce(ctx, "thinking")
-                answer = shape(
-                    await write_answer(story["title"], heard, question, spoken)
-                )
+                try:
+                    answer = shape(
+                        await write_answer(story["title"], heard, question, spoken)
+                    )
+                except Exception:
+                    # Anything at all: a child who has just spoken must hear something
+                    # back, and silence reads as the story having broken.
+                    logger.exception("answer failed")
+                    answer = ANSWER_FALLBACK
+                answers += 1
                 spoken.append(answer)
                 logger.info(f"answering {answer!r}")
                 # A reply ending in a question mark is the narrator asking the child
@@ -278,6 +309,7 @@ async def entrypoint(ctx: JobContext) -> None:
                 said = f"{answer} {carried['text']}" if carried else answer
                 await caption(ctx, said)
                 await announce(ctx, "speaking")
+                observe.event(logger, "answered", seconds=observe.since(asked))
                 replied = await speak_reply(
                     source, stream_answer(said, voice["elevenLabsId"]), spoke
                 )
@@ -337,6 +369,14 @@ async def entrypoint(ctx: JobContext) -> None:
                     logger.info(f"render cached at={at}")
                 else:
                     logger.warning(f"render not cached at={at} reason={reason}")
+        observe.event(
+            logger,
+            "session complete",
+            seconds=observe.since(started),
+            position=round(player.position, 1),
+            answers=answers,
+            cached=cached is not None,
+        )
 
 
 if __name__ == "__main__":

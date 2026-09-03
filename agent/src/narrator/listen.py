@@ -9,6 +9,7 @@ import array
 import asyncio
 import logging
 import math
+import time
 
 from livekit import rtc
 from livekit.agents.stt import SpeechEventType
@@ -20,6 +21,7 @@ from livekit.agents.types import (
 from livekit.agents.utils import shortuuid
 from livekit.plugins import deepgram, noise_cancellation
 
+from narrator import observe
 from narrator.alignment import keyterms
 from narrator.config import (
     DUCK_ATTACK_SECONDS,
@@ -62,6 +64,7 @@ class Listener:
         self._ramp = ramp
         self._loud = 0
         self._quiet = 0.0
+        self._ducked_at = 0.0
         self._ducked = False
         self._segment = shortuuid("SG_")
         self._captions: asyncio.Queue[tuple[str, str, bool]] = asyncio.Queue()
@@ -112,6 +115,7 @@ class Listener:
             self._quiet = 0.0
             if self._loud >= DUCK_FRAMES and not self._ducked:
                 self._ducked = True
+                self._ducked_at = time.monotonic()
                 self._ramp.set(DUCK_VOLUME, DUCK_ATTACK_SECONDS)
         else:
             self._loud = 0
@@ -164,7 +168,17 @@ class Listener:
                     self._spoke.set()
                     if self._playing.is_set():
                         self._playing.clear()
-                        logger.info("narration stopped")
+                        # First loud frame to the narration stopping: the number that
+                        # decides whether interrupting feels natural or rude.
+                        # `event` is the loop variable here, so the module is called
+                        # by name rather than imported into the same scope.
+                        observe.event(
+                            logger,
+                            "narration stopped",
+                            seconds=observe.since(self._ducked_at)
+                            if self._ducked_at
+                            else None,
+                        )
                 elif event.type == SpeechEventType.FINAL_TRANSCRIPT:
                     logger.info(f"heard {text!r}")
                     self._captions.put_nowait((self._segment, text, True))

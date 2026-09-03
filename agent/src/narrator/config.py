@@ -54,6 +54,9 @@ MAX_SILENCE_SECONDS = 2.0
 MIN_ALIGNMENT_COVERAGE = 0.85
 
 ANSWER_MODEL = "gpt-5.4"
+# A child is sitting in silence while this runs, so it is cut off well before an
+# ordinary HTTP timeout would fire. A short fallback line beats a long pause.
+ANSWER_TIMEOUT_SECONDS = 10.0
 RECENT_ANSWERS = 6  # replies shown back to the narrator so it varies its openings
 CLARIFY_WAIT_SECONDS = 12.0  # after asking the child to repeat, before carrying on
 
