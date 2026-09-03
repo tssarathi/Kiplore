@@ -1,4 +1,9 @@
-"""Hearing the child: energy for ducking, Flux for turns."""
+"""Hearing the child: energy for ducking, Flux for turns.
+
+Two paths out of the same microphone frames. Raw energy ducks the narration in
+milliseconds, before anyone knows what was said; Deepgram turns the frames into the
+words that become questions.
+"""
 
 import array
 import asyncio
@@ -29,10 +34,12 @@ from narrator.envelope import GainRamp
 
 logger = logging.getLogger("narrator")
 
-MIC_FRAME_CAPACITY = 100
+MIC_FRAME_CAPACITY = 100  # frames buffered per track before old ones are dropped
 
 
 class Listener:
+    """The child's microphone: ducks the narration, and turns speech into questions."""
+
     def __init__(
         self,
         script: list[str],
@@ -64,9 +71,11 @@ class Listener:
         ]
 
     def add_microphone(self, track: rtc.Track) -> None:
+        """Start forwarding a newly subscribed microphone track."""
         self._tasks.append(asyncio.create_task(self._forward(track)))
 
     async def aclose(self) -> None:
+        """Stop every task and close the transcriber."""
         for task in self._tasks:
             task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
@@ -74,6 +83,8 @@ class Listener:
         await self._stt.aclose()
 
     async def _forward(self, track: rtc.Track) -> None:
+        """Pipe one track into the energy gate and the transcriber."""
+        # Room noise is removed once, before either path sees the frame.
         stream = rtc.AudioStream(
             track,
             capacity=MIC_FRAME_CAPACITY,
@@ -87,9 +98,13 @@ class Listener:
             await stream.aclose()
 
     def _gate(self, frame: rtc.AudioFrame) -> None:
+        """Duck while the room is loud, restore once it has been quiet a while."""
         samples = array.array("h", bytes(frame.data))
         if not samples:
             return
+        # RMS as a fraction of full scale, so the threshold does not depend on volume
+        # levels elsewhere. Ducking needs several loud frames, unducking needs a stretch
+        # of quiet: without that hysteresis the narration would flutter.
         rms = math.sqrt(sum(s * s for s in samples) / len(samples)) / 32768
         seconds = len(samples) / frame.sample_rate / frame.num_channels
         if rms >= DUCK_RMS:
@@ -105,12 +120,17 @@ class Listener:
                 self._unduck()
 
     def _unduck(self) -> None:
+        """Bring the narration back, unless it has already stopped for a question."""
         if self._ducked:
             self._ducked = False
             if self._playing.is_set():
                 self._ramp.set(1.0, DUCK_DECAY_SECONDS)
 
     async def _publish(self) -> None:
+        """Write captions into the room one at a time.
+
+        Separate from the read loop so a slow network write cannot stall transcription.
+        """
         while True:
             segment, text, final = await self._captions.get()
             try:
@@ -128,6 +148,7 @@ class Listener:
                 logger.exception("caption publish failed")
 
     async def _read(self) -> None:
+        """Turn transcription events into ducking, captions and questions."""
         try:
             async for event in self._stream:
                 if event.type == SpeechEventType.END_OF_SPEECH:
@@ -136,6 +157,8 @@ class Listener:
                 if not event.alternatives or not event.alternatives[0].text:
                     continue
                 text = event.alternatives[0].text
+                # An interim transcript is the earliest trustworthy sign the child is
+                # really speaking, so narration stops here rather than on the final one.
                 if event.type == SpeechEventType.INTERIM_TRANSCRIPT:
                     self._captions.put_nowait((self._segment, text, False))
                     self._spoke.set()
@@ -152,4 +175,6 @@ class Listener:
         except Exception:
             logger.exception("transcription failed")
             self._unduck()
+            # An empty question unblocks the story loop, so a dead transcriber ends in
+            # the story carrying on rather than in silence.
             self._questions.put_nowait("")

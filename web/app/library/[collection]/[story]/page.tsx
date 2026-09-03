@@ -10,6 +10,7 @@ export default async function StoryPage({
 }: {
   params: Promise<{ collection: string; story: string }>;
 }) {
+  // getStory returns null for an unsafe id as well as a missing one, so both end here.
   const { collection, story } = await params;
   const found = await getStory(collection, story);
   if (!found) notFound();
@@ -35,6 +36,8 @@ export default async function StoryPage({
       </div>
 
       <div className="mt-12">
+        {/* Only what the picker needs crosses to the client; the ElevenLabs voice
+            id stays on the server. */}
         <PlayButton
           collection={collection}
           storyId={story}

@@ -1,4 +1,10 @@
-"""The job: one room, one listener, one story."""
+"""The job: one room, one listener, one story.
+
+The flow is `entrypoint`, end to end: connect, publish a voice, wait for the child,
+load the story from cache or render it live, then narrate in a loop that gives way to
+questions and picks the telling back up where it broke off. Everything else in the
+package is a piece this loop drives.
+"""
 
 import asyncio
 import itertools
@@ -56,7 +62,14 @@ server = AgentServer(num_idle_processes=1)
 async def broadcast(
     ctx: JobContext, player: Player, timings: Timings, paused: asyncio.Event
 ) -> None:
+    """Report position, length and the current caption once a second.
+
+    Sent unreliably: a dropped packet is replaced a second later, and `seq` lets the
+    client ignore any that arrive out of order.
+    """
     for seq in itertools.count(1):
+        # Past a sentence's end is the silence between two sentences, which shows no
+        # caption rather than holding the last one on screen.
         segment = segment_at(timings.segments, player.position)
         if segment is not None and player.position >= segment["end"]:
             segment = None
@@ -76,12 +89,14 @@ async def broadcast(
 
 
 async def announce(ctx: JobContext, state: str) -> None:
+    """Publish speaking, listening or thinking, which the client animates on."""
     await ctx.room.local_participant.set_attributes({ATTRIBUTE_AGENT_STATE: state})
 
 
 async def next_question(
     questions: asyncio.Queue[str | None], within: float | None
 ) -> str | None:
+    """The next thing the child says, or "" if `within` seconds pass in silence."""
     if within is None:
         return await questions.get()
     try:
@@ -91,6 +106,7 @@ async def next_question(
 
 
 async def caption(ctx: JobContext, text: str) -> None:
+    """Put one line of the narrator's own speech on screen."""
     writer = await ctx.room.local_participant.stream_text(
         topic=TOPIC_TRANSCRIPTION,
         attributes={
@@ -103,6 +119,11 @@ async def caption(ctx: JobContext, text: str) -> None:
 
 
 def resume_point(timings: Timings, position: float) -> float:
+    """Where to pick the story up: the interrupted sentence, or failing that its chunk.
+
+    Restarting the sentence rather than the exact word means the child hears a whole
+    thought instead of half of one.
+    """
     segment = segment_at(timings.segments, position)
     if segment is not None:
         return segment["start"]
@@ -111,6 +132,10 @@ def resume_point(timings: Timings, position: float) -> float:
 
 @server.rtc_session()
 async def entrypoint(ctx: JobContext) -> None:
+    """Narrate one story to one child, from connection to teardown."""
+    # Two events, distinct on purpose. `playing` down means the child interrupted;
+    # `paused` down means they pressed pause. Both stop the audio, only one is a
+    # question. `spoke` is the barge-in signal that cuts an answer short.
     playing = asyncio.Event()
     paused = asyncio.Event()
     paused.set()
@@ -125,6 +150,8 @@ async def entrypoint(ctx: JobContext) -> None:
     source = await publish_voice(ctx)
     session = Session(source, player, playing, paused, spoke, questions, ramp)
 
+    # Acknowledged reliably, because the client keeps retrying the report until it
+    # hears back. Tasks are held in a set so they are not garbage collected mid-flight.
     def publish_ack(seq: int) -> None:
         payload = json.dumps({"type": "resume-ack", "seq": seq})
         task = asyncio.create_task(
@@ -138,6 +165,8 @@ async def entrypoint(ctx: JobContext) -> None:
         control = json.loads(packet.data)
         logger.info(f"control {control}")
         action = control["action"]
+        # resume-at is accepted in any phase: it is the message that ends a hold.
+        # Transport controls only make sense while the story is actually running.
         if action == "resume-at":
             seq = session.report(control["seq"], control["position"], control["paused"])
             if seq is not None:
@@ -160,6 +189,8 @@ async def entrypoint(ctx: JobContext) -> None:
     def on_participant_connected(_: rtc.RemoteParticipant) -> None:
         session.rejoined()
 
+    # Which story and which voice were chosen travel in the join token's metadata, so
+    # the agent learns its job from the participant rather than from a second request.
     listener = await ctx.wait_for_participant()
     request = json.loads(listener.metadata)
     story = load_story(request["collection"], request["storyId"])
@@ -172,11 +203,15 @@ async def entrypoint(ctx: JobContext) -> None:
     ears = Listener(
         story["script"], ctx.room, listener.identity, playing, spoke, questions, ramp
     )
+    # A microphone published before this point will never fire the event, so both the
+    # future ones and the ones already there have to be picked up.
     ctx.room.on("track_subscribed", lambda track, *_: ears.add_microphone(track))
     for publication in listener.track_publications.values():
         if publication.track is not None:
             ears.add_microphone(publication.track)
 
+    # A hit skips synthesis entirely and brings back the timings with the audio, so a
+    # cached story is identical to a freshly rendered one from here on.
     render = cache.render_id(story, voice["elevenLabsId"])
     at = cache.prefix(
         request["collection"], request["storyId"], request["voiceId"], render
@@ -191,17 +226,21 @@ async def entrypoint(ctx: JobContext) -> None:
         chunks = once(pcm)
         logger.info(f"narrating from cache at={at}")
 
+    # Rendering, reporting and playback all run at once: the story starts on the first
+    # chunk rather than waiting for the last.
     producer = asyncio.create_task(fill(player, chunks))
     broadcaster = asyncio.create_task(broadcast(ctx, player, timings, paused))
 
     try:
         while True:
+            # Blocks here while a dropped listener is being waited out.
             await session.ready()
             if session.phase is Phase.LEFT:
                 break
             playing.set()
             await announce(ctx, "speaking")
             await play(source, player, playing, paused, ramp, producer)
+            # play only returns with `playing` still set when the story ran out.
             if playing.is_set():
                 break
             logger.info(
@@ -209,6 +248,8 @@ async def entrypoint(ctx: JobContext) -> None:
             )
             await announce(ctx, "listening")
 
+            # One turn of question and answer, repeating only while the narrator is
+            # still asking the child to clarify.
             waiting: float | None = None
             carried: dict | None = None
             while question := await next_question(questions, waiting):
@@ -222,6 +263,10 @@ async def entrypoint(ctx: JobContext) -> None:
                 answer = await write_answer(story["title"], heard, question, spoken)
                 spoken.append(answer)
                 logger.info(f"answering {answer!r}")
+                # A reply ending in a question mark is the narrator asking the child
+                # to repeat themselves, so it waits instead of resuming the story. Any
+                # other reply is followed by the interrupted sentence, spoken again in
+                # full so the story does not restart mid-thought.
                 asked_again = answer.rstrip().endswith("?")
                 carried = (
                     None
@@ -234,6 +279,8 @@ async def entrypoint(ctx: JobContext) -> None:
                 replied = await speak_reply(
                     source, stream_answer(said, voice["elevenLabsId"]), spoke
                 )
+                # Cut short means the child is still talking, so wait for what they
+                # have to say rather than treating the answer as delivered.
                 if not replied:
                     carried = None
                     logger.info("answer interrupted")
@@ -245,9 +292,12 @@ async def entrypoint(ctx: JobContext) -> None:
                 logger.info("asked again, waiting for the child")
                 await announce(ctx, "listening")
                 waiting = CLARIFY_WAIT_SECONDS
+            # None is the wake-up from a drop or a departure, not something asked.
             if question is None:
                 continue
 
+            # A breath, then back to the end of the sentence just repeated, or to the
+            # start of the one that was interrupted.
             await asyncio.sleep(RESUME_BREATH_SECONDS)
             target = (
                 carried["end"] if carried else resume_point(timings, player.position)
@@ -260,6 +310,8 @@ async def entrypoint(ctx: JobContext) -> None:
             await producer
             logger.info("story finished")
     finally:
+        # Read before cancelling: afterwards there is no telling a render that finished
+        # from one that was torn down partway.
         session.close()
         complete = producer.done() and not producer.cancelled()
         failure = producer.exception() if complete else None
@@ -268,6 +320,8 @@ async def entrypoint(ctx: JobContext) -> None:
         await ears.aclose()
         await asyncio.gather(producer, broadcaster, return_exceptions=True)
         await ctx.delete_room()
+        # Only a render that ran to completion is worth storing, and only one that was
+        # rendered here: a cache hit has nothing new to write.
         if cached is None:
             if not complete:
                 logger.info(f"render unfinished, not cached at={at}")

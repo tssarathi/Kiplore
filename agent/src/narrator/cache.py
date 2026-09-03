@@ -1,4 +1,9 @@
-"""Renders in R2, named by everything that shaped them."""
+"""Renders in R2, named by everything that shaped them.
+
+Synthesis is the slow and costly part of starting a story, and the same script in the
+same voice always sounds the same, so a render is worth keeping. Audio and timings are
+stored together: recovering the timings would mean synthesising again.
+"""
 
 import asyncio
 import hashlib
@@ -49,6 +54,11 @@ def _client():
 
 
 def render_id(story: dict, eleven_id: str) -> str:
+    """A short hash of everything that changes how a story sounds.
+
+    Because every such input is in the hash, an edit anywhere yields a new id and the
+    stale render is simply never asked for again. Nothing is ever invalidated by hand.
+    """
     identity = {
         "script": story["script"],
         "voice_id": eleven_id,
@@ -64,6 +74,7 @@ def render_id(story: dict, eleven_id: str) -> str:
 
 
 def prefix(collection: str, story_id: str, voice_id: str, render: str) -> str:
+    """Where one render lives in the bucket."""
     return f"library/{collection}/{story_id}/{voice_id}/{render}"
 
 
@@ -89,16 +100,26 @@ def _resolve(at: str) -> dict | None:
 
 
 def _fetch(at: str, meta: dict) -> tuple[bytes, Timings]:
+    """Read the audio a metadata record points at, and check it is intact."""
     audio = _get(_client(), f"{at}/{meta['audio']}")
     if audio is None:
         raise ValueError(f"{meta['audio']} is missing")
+    # A length mismatch means a half-written upload; better to re-render than to play
+    # a story that stops early.
     if len(audio) != meta["bytes"]:
         raise ValueError("render audio does not match its timings")
     return audio, Timings(meta["segments"], meta["chunk_timings"])
 
 
 async def load(at: str) -> tuple[bytes, Timings] | None:
+    """A cached render, or None for anything that makes it unusable.
+
+    Every failure is swallowed: a miss only costs a live render, so nothing here is
+    worth failing a story over.
+    """
     try:
+        # Only the small metadata read is on the short timeout, since it is what the
+        # child is waiting on. Fetching the audio may take as long as it needs.
         meta = await asyncio.wait_for(
             asyncio.to_thread(_resolve, at), CACHE_RESOLVE_SECONDS
         )
@@ -114,9 +135,12 @@ async def load(at: str) -> tuple[bytes, Timings] | None:
 
 
 def _save(at: str, pcm: bytes, timings: Timings, spoken: str) -> str | None:
+    """Quality check a render, then upload the audio and its metadata."""
     reason = qc.inspect(pcm, spoken, timings.segments, timings.chunk_timings)
     if reason is not None:
         return reason
+    # Metadata is written last and names the audio object, so a reader that finds
+    # timings knows the audio behind them finished uploading.
     client = _client()
     audio = f"audio-{hashlib.sha256(pcm).hexdigest()[:12]}.pcm"
     _put(client, f"{at}/{audio}", pcm, "application/octet-stream")
@@ -137,6 +161,7 @@ def _save(at: str, pcm: bytes, timings: Timings, spoken: str) -> str | None:
 
 
 async def save(at: str, pcm: bytes, timings: Timings, spoken: str) -> str | None:
+    """Store a render, returning the reason it was not stored, or None on success."""
     try:
         return await asyncio.to_thread(_save, at, pcm, timings, spoken)
     except REMOTE_ERRORS as error:

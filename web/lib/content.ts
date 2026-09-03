@@ -1,3 +1,5 @@
+// The library, read straight off disk. Server side only: importing this from a client
+// component would try to bundle node:fs.
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -21,7 +23,11 @@ export type Voice = {
   look: "elder" | "woman" | "man";
 };
 
+// A sibling of web/ rather than a directory inside it, so the agent and the client read
+// the same story files.
 const LIBRARY_DIR = path.join(process.cwd(), "..", "library");
+// Ids come from the URL and go into a path, so they are held to characters that cannot
+// climb out of the library.
 const NAME = /^[A-Za-z0-9_-]+$/;
 
 export async function getVoices(): Promise<Voice[]> {
@@ -29,6 +35,7 @@ export async function getVoices(): Promise<Voice[]> {
   return JSON.parse(raw) as Voice[];
 }
 
+/** One story, or null if the id is unusable or nothing is there. */
 export async function getStory(
   collection: string,
   storyId: string,
@@ -45,6 +52,9 @@ export async function getStory(
   }
 }
 
+/** A directory name as a display title: "hans-andersen" becomes "Hans Andersen". */
+// Collections carry no metadata file; deriving the title from the name is what keeps it
+// that way.
 export function titleOf(id: string): string {
   return id
     .split("-")
@@ -52,6 +62,8 @@ export function titleOf(id: string): string {
     .join(" ");
 }
 
+/** Every collection holding at least one story. */
+// The directory test keeps voices.json out; the count keeps empty directories out.
 export async function getCollections(): Promise<Collection[]> {
   const entries = await readdir(LIBRARY_DIR, { withFileTypes: true });
   const collections = await Promise.all(
@@ -68,6 +80,7 @@ export async function getCollections(): Promise<Collection[]> {
     .sort((a, b) => a.title.localeCompare(b.title));
 }
 
+/** Every story in a collection, or an empty list if there is no such collection. */
 export async function getStories(collection: string): Promise<Story[]> {
   if (!NAME.test(collection)) return [];
   let names: string[];

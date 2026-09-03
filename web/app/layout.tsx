@@ -3,6 +3,8 @@ import { Bodoni_Moda, Fragment_Mono, Inter } from "next/font/google";
 import Wordmark from "@/components/Wordmark";
 import "./globals.css";
 
+// next/font self-hosts the files at build time and exposes each as a CSS variable,
+// which globals.css picks up as its type tokens. No network request, no swap flash.
 const display = Bodoni_Moda({ subsets: ["latin"], variable: "--font-bodoni" });
 
 const mono = Fragment_Mono({

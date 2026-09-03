@@ -2,43 +2,50 @@
 
 from pathlib import Path
 
+# Story files sit beside the agent so the worker and the web client read the same ones.
 LIBRARY_DIR = Path(__file__).resolve().parents[3] / "library"
 
+# Signed 16-bit mono PCM throughout. SAMPLE_RATE must match OUTPUT_FORMAT below.
 SAMPLE_RATE = 22050
 NUM_CHANNELS = 1
-CHUNK_SECONDS = 0.02
+CHUNK_SECONDS = 0.02  # one frame; LiveKit wants a trickle, not blocks
 FRAME_SAMPLES = int(SAMPLE_RATE * CHUNK_SECONDS)
-SOURCE_QUEUE_MS = 200
+SOURCE_QUEUE_MS = 200  # queued audio can be dropped but not unsaid, so keep it short
 
+# Fades, in seconds. Cutting audio dead clicks, so every stop and start slides.
 PAUSE_FADE_SECONDS = 0.15
-RESUME_FADE_FROM = 0.65
+RESUME_FADE_FROM = 0.65  # resuming from part volume sounds like a breath
 RESUME_FADE_SECONDS = 0.4
-RESUME_BREATH_SECONDS = 0.2
+RESUME_BREATH_SECONDS = 0.2  # silence between the answer ending and the story going on
 
+# Ducking runs on raw mic energy, not words: a transcript costs a round trip they hear.
 DUCK_VOLUME = 0.25
-DUCK_RMS = 0.01
-DUCK_FRAMES = 3
+DUCK_RMS = 0.01  # fraction of full scale
+DUCK_FRAMES = 3  # consecutive loud frames, so one cough does not duck
 DUCK_ATTACK_SECONDS = 0.12
 DUCK_DECAY_SECONDS = 0.25
-DUCK_RELEASE_SECONDS = 0.7
+DUCK_RELEASE_SECONDS = 0.7  # rides over the pauses inside a child's sentence
 
+# Deepgram's confidence the turn is over. Higher waits longer, lower talks over them.
 EOT_THRESHOLD = 0.8
 
-RECONNECT_GRACE_SECONDS = 60
-RESUME_REPORT_SECONDS = 30
+RECONNECT_GRACE_SECONDS = 60  # how long a dropped listener keeps their story alive
+RESUME_REPORT_SECONDS = 30  # wait for the client's position before using our own
 
-CHUNK_GAP_SECONDS = 0.8
-MAX_STORY_TEXT_CHARS = 5000
+CHUNK_GAP_SECONDS = 0.8  # silence between chunks; how the story gets its pauses
+MAX_STORY_TEXT_CHARS = 5000  # v3's limit; one request keeps the voice consistent
 
-ELEVEN_MODEL = "eleven_v3"
+ELEVEN_MODEL = "eleven_v3"  # the only model that honours the tags in the scripts
 OUTPUT_FORMAT = "pcm_22050"
 SEED = 42
-PIPELINE_VERSION = 1
+PIPELINE_VERSION = 1  # raised by hand; in the cache key, so it retires old renders
 
+# Starting a story waits on this lookup, so render live rather than wait on storage.
 CACHE_CONNECT_SECONDS = 5
 CACHE_READ_SECONDS = 30
 CACHE_RESOLVE_SECONDS = 1.5
 
+# Gates a render must pass to be cached. A bad render, once stored, is served for ever.
 MIN_CHARS_PER_SECOND = 6.0
 MAX_CHARS_PER_SECOND = 25.0
 SILENCE_RMS = 0.004
@@ -47,9 +54,11 @@ MAX_SILENCE_SECONDS = 2.0
 MIN_ALIGNMENT_COVERAGE = 0.85
 
 ANSWER_MODEL = "gpt-5.4"
-RECENT_ANSWERS = 6
-CLARIFY_WAIT_SECONDS = 12.0
+RECENT_ANSWERS = 6  # replies shown back to the narrator so it varies its openings
+CLARIFY_WAIT_SECONDS = 12.0  # after asking the child to repeat, before carrying on
 
+# Most of this prompt exists to stop the model doing things that are harmless in a chat
+# window and wrong here: spoiling, inventing, or promising to change a written story.
 ANSWER_PROMPT = """# Role and objective
 You are the voice telling the bedtime story "{title}" to a young child. The child has just
 spoken to you in the middle of the story. You answer out loud, in the same voice that has
@@ -121,6 +130,8 @@ them again, and do not say anything close to them. Reach for different words.
 
 Now reply to the child."""
 
+# Sent with every request and folded into the cache key. Stability 0.5 is ElevenLabs'
+# Natural setting, which they recommend for audio tag adherence.
 VOICE_SETTINGS = {
     "stability": 0.5,
     "similarity_boost": 0.75,

@@ -2,6 +2,8 @@ import Link from "next/link";
 import CollectionArt from "@/components/CollectionArt";
 import { getCollections } from "@/lib/content";
 
+// Server component: collections are read off disk while this renders, so the browser
+// is sent finished markup rather than the library itself.
 export default async function HomePage() {
   const collections = await getCollections();
 
