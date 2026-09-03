@@ -1,6 +1,10 @@
 import { AccessToken, RoomConfiguration } from "livekit-server-sdk";
 
 export async function POST(request: Request) {
+  if (process.env.NODE_ENV !== "development") {
+    return Response.json({ error: "not available" }, { status: 403 });
+  }
+
   const url = process.env.LIVEKIT_URL;
   const key = process.env.LIVEKIT_API_KEY;
   const secret = process.env.LIVEKIT_API_SECRET;
