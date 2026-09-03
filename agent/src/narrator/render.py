@@ -43,8 +43,15 @@ def _finite(value: object) -> bool:
 def _parse(line: bytes) -> tuple[bytes, list[str], list[float], list[float]]:
     event = json.loads(line)
     audio = event.get("audio_base64")
+    if not isinstance(audio, str):
+        raise RuntimeError("synthesis event is malformed")
+    pcm = base64.b64decode(audio, validate=True)
+    if len(pcm) % 2:
+        raise RuntimeError("synthesis audio is not whole samples")
     alignment = event.get("alignment")
-    if not isinstance(audio, str) or not isinstance(alignment, dict):
+    if alignment is None:
+        return pcm, [], [], []
+    if not isinstance(alignment, dict):
         raise RuntimeError("synthesis event is malformed")
     chars = alignment.get("characters")
     starts = alignment.get("character_start_times_seconds")
@@ -59,9 +66,6 @@ def _parse(line: bytes) -> tuple[bytes, list[str], list[float], list[float]]:
         raise RuntimeError("synthesis characters are malformed")
     if not all(_finite(s) and _finite(e) and e >= s for s, e in zip(starts, ends)):
         raise RuntimeError("synthesis times are malformed")
-    pcm = base64.b64decode(audio, validate=True)
-    if len(pcm) % 2:
-        raise RuntimeError("synthesis audio is not whole samples")
     return pcm, chars, starts, ends
 
 
@@ -100,6 +104,23 @@ async def _events(
                 yield _parse(buffer)
 
 
+def shift_words(words: list[dict], counts: list[int]) -> list[dict]:
+    shifted: list[dict] = []
+    index = 0
+    for chunk, count in enumerate(counts):
+        shift = chunk * GAP_SECONDS
+        for word in words[index : index + count]:
+            shifted.append(
+                {
+                    "text": word["text"],
+                    "start": word["start"] + shift,
+                    "end": word["end"] + shift,
+                }
+            )
+        index += count
+    return shifted
+
+
 def insert_gaps(
     pcm: bytes, words: list[dict], counts: list[int]
 ) -> tuple[bytes, list[dict], list[float]]:
@@ -121,20 +142,7 @@ def insert_gaps(
         previous = offset_of(cut)
     gapped += pcm[previous:] + GAP
 
-    shifted = []
-    index = 0
-    for chunk, count in enumerate(counts):
-        shift = chunk * GAP_SECONDS
-        for word in words[index : index + count]:
-            shifted.append(
-                {
-                    "text": word["text"],
-                    "start": word["start"] + shift,
-                    "end": word["end"] + shift,
-                }
-            )
-        index += count
-
+    shifted = shift_words(words, counts)
     timings = [round(cut + (k + 1) * GAP_SECONDS, 2) for k, cut in enumerate(cuts)]
     raw_seconds = len(pcm) / 2 / SAMPLE_RATE
     timings.append(round(raw_seconds + len(counts) * GAP_SECONDS, 2))
@@ -174,6 +182,7 @@ class Narration:
                 index = boundaries[len(cuts)]
                 cuts.append((words[index - 1]["end"] + words[index]["start"]) / 2)
                 self.chunk_timings.append(round(cuts[-1] + len(cuts) * GAP_SECONDS, 2))
+            self.segments = to_segments(shift_words(words, self._counts))
 
             if len(cuts) == len(boundaries):
                 safe_end = len(pcm)

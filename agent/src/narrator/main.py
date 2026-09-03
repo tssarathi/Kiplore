@@ -138,7 +138,7 @@ async def entrypoint(ctx: JobContext) -> None:
             if session.phase is Phase.LEFT:
                 break
             playing.set()
-            await play(source, player, playing, paused, ramp)
+            await play(source, player, playing, paused, ramp, producer)
             if playing.is_set():
                 break
             logger.info(f"rewound {discard_queued(source, player):.2f}s of queued audio")

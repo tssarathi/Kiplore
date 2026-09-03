@@ -56,6 +56,7 @@ async def play(
     playing: asyncio.Event,
     paused: asyncio.Event,
     ramp: GainRamp,
+    producer: asyncio.Task[None],
 ) -> None:
     while True:
         if not (playing.is_set() and paused.is_set()) and ramp.target != 0.0:
@@ -74,6 +75,9 @@ async def play(
         if pcm is None:
             if player.finished:
                 return
+            if producer.done():
+                producer.result()
+            ramp.step(CHUNK_SECONDS)
             await asyncio.sleep(CHUNK_SECONDS)
             continue
         await source.capture_frame(frame(scale(pcm, ramp.step(CHUNK_SECONDS))))
