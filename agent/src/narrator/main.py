@@ -135,9 +135,7 @@ async def entrypoint(ctx: JobContext) -> None:
         logger.info(f"control {control}")
         action = control["action"]
         if action == "resume-at":
-            seq = session.report(
-                control["seq"], control["position"], control["paused"]
-            )
+            seq = session.report(control["seq"], control["position"], control["paused"])
             if seq is not None:
                 publish_ack(seq)
             return
@@ -202,7 +200,9 @@ async def entrypoint(ctx: JobContext) -> None:
             await play(source, player, playing, paused, ramp, producer)
             if playing.is_set():
                 break
-            logger.info(f"rewound {discard_queued(source, player):.2f}s of queued audio")
+            logger.info(
+                f"rewound {discard_queued(source, player):.2f}s of queued audio"
+            )
             await announce(ctx, "listening")
 
             waiting: float | None = None
@@ -246,9 +246,7 @@ async def entrypoint(ctx: JobContext) -> None:
 
             await asyncio.sleep(RESUME_BREATH_SECONDS)
             target = (
-                carried["end"]
-                if carried
-                else resume_point(timings, player.position)
+                carried["end"] if carried else resume_point(timings, player.position)
             )
             player.seek(seconds_to_bytes(target - player.position))
             ramp.snap(RESUME_FADE_FROM)

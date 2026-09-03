@@ -4,6 +4,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 
+
 @dataclass
 class Timings:
     segments: list[dict] = field(default_factory=list)

@@ -73,8 +73,7 @@ async def _events(
     text: str, voice_id: str
 ) -> AsyncIterator[tuple[bytes, list[str], list[float], list[float]]]:
     url = (
-        "https://api.elevenlabs.io/v1/text-to-speech/"
-        f"{voice_id}/stream/with-timestamps"
+        f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream/with-timestamps"
     )
     async with aiohttp.ClientSession(
         timeout=aiohttp.ClientTimeout(total=SYNTHESIS_TIMEOUT)
@@ -92,7 +91,9 @@ async def _events(
         ) as response:
             if response.status != 200:
                 detail = (await response.content.read(200)).decode(errors="replace")
-                raise RuntimeError(f"synthesis failed, HTTP {response.status}: {detail}")
+                raise RuntimeError(
+                    f"synthesis failed, HTTP {response.status}: {detail}"
+                )
             buffer = b""
             async for data in response.content.iter_any():
                 buffer += data
