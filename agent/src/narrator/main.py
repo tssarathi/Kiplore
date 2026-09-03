@@ -1,6 +1,7 @@
 """The job: one room, one listener, one story."""
 
 import asyncio
+import itertools
 import json
 import logging
 
@@ -10,6 +11,7 @@ from livekit.agents import AgentServer, JobContext
 from livekit.agents.stt import SpeechEventType
 from livekit.plugins import deepgram
 
+from narrator.alignment import chunk_start, heard_text, segment_at
 from narrator.answer import write_answer
 from narrator.audio import (
     discard_queued,
@@ -23,7 +25,7 @@ from narrator.config import RESUME_FADE_FROM, RESUME_FADE_SECONDS
 from narrator.content import load_story, load_voice
 from narrator.envelope import GainRamp
 from narrator.player import Player
-from narrator.render import stream_text
+from narrator.render import Narration, stream_answer
 
 load_dotenv()
 logger = logging.getLogger("narrator")
@@ -53,6 +55,30 @@ async def transcribe(
         stream.push_frame(audio.frame)
     stream.end_input()
     await reader
+
+
+async def broadcast(
+    ctx: JobContext, player: Player, narration: Narration, paused: asyncio.Event
+) -> None:
+    for seq in itertools.count(1):
+        segment = segment_at(narration.segments, player.position)
+        payload = json.dumps(
+            {
+                "seq": seq,
+                "position": round(player.position, 1),
+                "paused": not paused.is_set(),
+                "caption": segment["text"] if segment else None,
+            }
+        )
+        await ctx.room.local_participant.publish_data(payload, reliable=False)
+        await asyncio.sleep(1)
+
+
+def resume_point(narration: Narration, position: float) -> float:
+    segment = segment_at(narration.segments, position)
+    if segment is not None:
+        return segment["start"]
+    return chunk_start(narration.chunk_timings, position)
 
 
 @server.rtc_session()
@@ -91,30 +117,39 @@ async def entrypoint(ctx: JobContext) -> None:
         f"listener={listener.identity} story={story['title']!r} voice={voice['name']}"
     )
 
-    paragraph = story["script"][0]
-    eleven_id = voice["elevenLabsId"]
-
+    narration = Narration(story, voice["elevenLabsId"])
     ramp = GainRamp()
-    producer = asyncio.create_task(fill(player, stream_text(paragraph, eleven_id)))
+    producer = asyncio.create_task(fill(player, narration.stream()))
+    broadcaster = asyncio.create_task(broadcast(ctx, player, narration, paused))
 
-    while True:
-        playing.set()
-        await play(source, player, playing, paused, ramp)
-        if playing.is_set():
-            break
-        logger.info(f"rewound {discard_queued(source, player):.2f}s of queued audio")
+    try:
+        while True:
+            playing.set()
+            await play(source, player, playing, paused, ramp)
+            if playing.is_set():
+                break
+            logger.info(f"rewound {discard_queued(source, player):.2f}s of queued audio")
 
-        question = await questions.get()
-        answer = await write_answer(story["title"], paragraph, question)
-        logger.info(f"answering {answer!r}")
-        await speak(source, stream_text(answer, eleven_id))
+            question = await questions.get()
+            heard = heard_text(
+                story["script"],
+                narration.segments,
+                narration.chunk_timings,
+                player.position,
+            )
+            answer = await write_answer(story["title"], heard, question)
+            logger.info(f"answering {answer!r}")
+            await speak(source, stream_answer(answer, voice["elevenLabsId"]))
 
-        ramp.snap(RESUME_FADE_FROM)
-        ramp.set(1.0, RESUME_FADE_SECONDS)
+            player.seek(seconds_to_bytes(resume_point(narration, player.position) - player.position))
+            ramp.snap(RESUME_FADE_FROM)
+            ramp.set(1.0, RESUME_FADE_SECONDS)
 
-    await producer
-    logger.info("paragraph finished")
-    await ctx.delete_room()
+        await producer
+        logger.info("story finished")
+    finally:
+        broadcaster.cancel()
+        await ctx.delete_room()
 
 
 if __name__ == "__main__":
