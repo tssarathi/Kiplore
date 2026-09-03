@@ -108,6 +108,7 @@ export default function PlayButton({
     joined.on(RoomEvent.Reconnecting, () => {
       setReconnecting(true);
       setStatus("Reconnecting");
+      if (lastSeq.current === 0) return;
       reportSeq.current += 1;
       report.current = { seq: reportSeq.current, ...heard.current };
     });

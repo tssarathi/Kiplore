@@ -1,4 +1,4 @@
-import { AccessToken } from "livekit-server-sdk";
+import { AccessToken, RoomConfiguration } from "livekit-server-sdk";
 
 export async function POST(request: Request) {
   const url = process.env.LIVEKIT_URL;
@@ -16,6 +16,8 @@ export async function POST(request: Request) {
     ttl: "15m",
     metadata: JSON.stringify({ collection, storyId, voiceId }),
   });
+
+  token.roomConfig = new RoomConfiguration({ departureTimeout: 90 });
 
   token.addGrant({
     roomJoin: true,
