@@ -20,6 +20,18 @@ jobs:
       - run: uv run ruff check src tests
       - run: uv run pytest -q
 
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f agent/Dockerfile -t kiplore-agent .
+      # Building only proves it compiles. This proves the worker can still find the
+      # story library, which is decided by the layout of the image.
+      - name: the library resolves inside the image
+        run: |
+          docker run --rm kiplore-agent python -c \
+            "from narrator.config import LIBRARY_DIR; assert LIBRARY_DIR.is_dir(), LIBRARY_DIR"
+
   web:
     runs-on: ubuntu-latest
     defaults:

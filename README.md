@@ -119,6 +119,7 @@ and Kipling's *Just So Stories*.
 agent/src/narrator/    the LiveKit worker: synthesis, alignment, listening,
                        answering, caching, playback and reconnect handling
 agent/tests/           unit tests, no network and no keys
+agent/Dockerfile       how the worker ships, since LiveKit runs it as a container
 web/                   Next.js App Router client and the token endpoint
 library/               story content as JSON, one directory per collection
 ```
