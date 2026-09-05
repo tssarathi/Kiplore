@@ -116,6 +116,15 @@ class Listener:
             if self._ducked and self._quiet >= DUCK_RELEASE_SECONDS:
                 self._unduck()
 
+    def _interrupt(self) -> None:
+        self._spoke.set()
+        if self._playing.is_set():
+            self._playing.clear()
+            observe.event(
+                "narration stopped",
+                seconds=observe.since(self._ducked_at) if self._ducked_at else None,
+            )
+
     def _unduck(self) -> None:
         if self._ducked:
             self._ducked = False
@@ -151,19 +160,12 @@ class Listener:
 
                 if event.type == SpeechEventType.INTERIM_TRANSCRIPT:
                     self._captions.put_nowait((self._segment, text, False))
-                    self._spoke.set()
-                    if self._playing.is_set():
-                        self._playing.clear()
-                        observe.event(
-                            "narration stopped",
-                            seconds=observe.since(self._ducked_at)
-                            if self._ducked_at
-                            else None,
-                        )
+                    self._interrupt()
                 elif event.type == SpeechEventType.FINAL_TRANSCRIPT:
                     logger.info(f"heard {text!r}")
                     self._captions.put_nowait((self._segment, text, True))
                     self._segment = shortuuid("SG_")
+                    self._interrupt()
                     self._questions.put_nowait(text)
         except asyncio.CancelledError:
             raise
