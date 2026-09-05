@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import math
 from collections.abc import Callable
 from enum import Enum
@@ -9,14 +8,11 @@ from livekit import rtc
 from narrator.audio import seconds_to_bytes
 from narrator.config import (
     RECONNECT_GRACE_SECONDS,
-    RESUME_FADE_FROM,
-    RESUME_FADE_SECONDS,
     RESUME_REPORT_SECONDS,
 )
 from narrator.envelope import GainRamp
+from narrator.observe import logger
 from narrator.player import Player
-
-logger = logging.getLogger("narrator")
 
 CLEAN_LEAVES = frozenset(
     {
@@ -24,7 +20,6 @@ CLEAN_LEAVES = frozenset(
         rtc.DisconnectReason.PARTICIPANT_REMOVED,
         rtc.DisconnectReason.ROOM_DELETED,
         rtc.DisconnectReason.ROOM_CLOSED,
-        rtc.DisconnectReason.DUPLICATE_IDENTITY,
         rtc.DisconnectReason.SERVER_SHUTDOWN,
     }
 )
@@ -57,7 +52,8 @@ class Session:
         self._ramp = ramp
         self._held = 0.0
         self._seq = 0
-        self._timer: asyncio.Task[None] | None = None
+        self._resumed = False
+        self._timer: asyncio.TimerHandle | None = None
         self._changed = asyncio.Event()
 
     async def ready(self) -> None:
@@ -72,6 +68,7 @@ class Session:
             self.left()
             return
         if self.phase is Phase.HELD:
+            self._arm(RECONNECT_GRACE_SECONDS, self.left)
             return
 
         queued = self._source.queued_duration if self._playing.is_set() else 0.0
@@ -80,6 +77,7 @@ class Session:
         self._source.clear_queue()
         self._player.seek(-seconds_to_bytes(queued))
         self._held = self._player.position
+        self._resumed = False
         self._arm(RECONNECT_GRACE_SECONDS, self.left)
         self._enter(Phase.HELD)
         self._wake()
@@ -109,6 +107,8 @@ class Session:
 
         if seq <= self._seq:
             return seq
+        if self._resumed:
+            return seq
         self._seq = seq
         self._disarm()
 
@@ -119,10 +119,8 @@ class Session:
             self._player.seek(seconds_to_bytes(target - self._player.position))
         if paused:
             self._paused.clear()
-        else:
-            self._paused.set()
-            self._ramp.snap(RESUME_FADE_FROM)
-            self._ramp.set(1.0, RESUME_FADE_SECONDS)
+        if self._paused.is_set():
+            self._ramp.resume()
         self._enter(Phase.ACTIVE)
         logger.info(f"resumed position={self._player.position:.1f} reason=report")
         return seq
@@ -143,6 +141,7 @@ class Session:
         if self.phase is not Phase.HELD:
             return
         self._ramp.snap(1.0)
+        self._resumed = True
         self._enter(Phase.ACTIVE)
         logger.info(f"resumed position={self._held:.1f} reason=no_report")
 
@@ -157,12 +156,7 @@ class Session:
 
     def _arm(self, seconds: float, expire: Callable[[], None]) -> None:
         self._disarm()
-
-        async def countdown() -> None:
-            await asyncio.sleep(seconds)
-            expire()
-
-        self._timer = asyncio.create_task(countdown())
+        self._timer = asyncio.get_running_loop().call_later(seconds, expire)
 
     def _disarm(self) -> None:
         if self._timer is not None:
