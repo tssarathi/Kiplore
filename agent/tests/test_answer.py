@@ -1,5 +1,3 @@
-"""An answer is not just text: brackets in it are instructions to the synthesiser."""
-
 from narrator.answer import shape
 from narrator.config import ANSWER_FALLBACK
 

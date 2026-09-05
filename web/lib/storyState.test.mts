@@ -1,5 +1,3 @@
-// anything that gets past this parser lands in React state and on the screen
-
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseServerMessage } from "./storyState.ts";

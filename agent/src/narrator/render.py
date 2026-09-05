@@ -1,5 +1,3 @@
-"""Story text to audio, with a timestamp on every character."""
-
 import base64
 import hashlib
 import itertools
@@ -22,19 +20,16 @@ from narrator.config import (
 )
 
 SYNTHESIS_TIMEOUT = 600
-# the silence between chunks, in samples, bytes and seconds
 GAP_SAMPLES = int(SAMPLE_RATE * CHUNK_GAP_SECONDS)
 GAP = bytes(GAP_SAMPLES * 2)
 GAP_SECONDS = GAP_SAMPLES / SAMPLE_RATE
 
 
 def offset_of(seconds: float) -> int:
-    """A time in the render as a byte offset."""
     return int(seconds * SAMPLE_RATE) * 2
 
 
 def _finite(value: object) -> bool:
-    """A real, non-negative number, and not a bool."""
     return (
         not isinstance(value, bool)
         and isinstance(value, (int, float))
@@ -44,8 +39,6 @@ def _finite(value: object) -> bool:
 
 
 def _parse(line: bytes) -> tuple[bytes, list[str], list[float], list[float]]:
-    """One synthesis event, raising on anything malformed."""
-    # check every field: wrong timings are harder to notice than a failed story
     event = json.loads(line)
     audio = event.get("audio_base64")
     if not isinstance(audio, str):
@@ -54,7 +47,6 @@ def _parse(line: bytes) -> tuple[bytes, list[str], list[float], list[float]]:
     if len(pcm) % 2:
         raise RuntimeError("synthesis audio is not whole samples")
 
-    # audio with no alignment is normal, not an error
     alignment = event.get("alignment")
     if alignment is None:
         return pcm, [], [], []
@@ -81,14 +73,12 @@ def _parse(line: bytes) -> tuple[bytes, list[str], list[float], list[float]]:
 async def _events(
     text: str, voice_id: str
 ) -> AsyncIterator[tuple[bytes, list[str], list[float], list[float]]]:
-    """Stream NDJSON, carrying partial lines across reads."""
     url = (
         f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream/with-timestamps"
     )
     async with aiohttp.ClientSession(
         timeout=aiohttp.ClientTimeout(total=SYNTHESIS_TIMEOUT)
     ) as session:
-        # one request for the whole story, so the voice does not reset partway
         async with session.post(
             url,
             params={"output_format": OUTPUT_FORMAT},
@@ -106,7 +96,6 @@ async def _events(
                     f"synthesis failed, HTTP {response.status}: {detail}"
                 )
 
-            # newline-delimited JSON: reads land mid-line, so carry the tail over
             buffer = b""
             async for data in response.content.iter_any():
                 buffer += data
@@ -119,7 +108,6 @@ async def _events(
 
 
 def shift_words(words: list[dict], counts: list[int]) -> list[dict]:
-    """Push word times later by one gap per preceding chunk."""
     shifted: list[dict] = []
     index = 0
     for chunk, count in enumerate(counts):
@@ -139,14 +127,12 @@ def shift_words(words: list[dict], counts: list[int]) -> list[dict]:
 def insert_gaps(
     pcm: bytes, words: list[dict], counts: list[int]
 ) -> tuple[bytes, list[dict], list[float]]:
-    """Cut at word midpoints, splice silence, retime everything."""
     if sum(counts) != len(words):
         raise RuntimeError(
             f"word mapping failed: script has {sum(counts)} spoken words, "
             f"alignment produced {len(words)}"
         )
 
-    # where exactly to cut: midway between two words, so neither is clipped
     cuts = []
     index = 0
     for count in counts[:-1]:
@@ -168,8 +154,6 @@ def insert_gaps(
 
 
 class Narration:
-    """One story's synthesis: audio streaming out while its timings fill in."""
-
     def __init__(self, story: dict, voice_id: str) -> None:
         self.timings = Timings()
         self._text = "\n\n".join(story["script"])
@@ -179,7 +163,6 @@ class Narration:
         self._voice_id = voice_id
 
     async def stream(self) -> AsyncIterator[bytes]:
-        """Yield the render as it arrives, filling in the timings as it goes."""
         pcm = bytearray()
         chars: list[str] = []
         starts: list[float] = []
@@ -206,7 +189,6 @@ class Narration:
                 )
             self.timings.segments = to_segments(shift_words(words, self._counts))
 
-            # release only up to the last fully timed word; a later event can move it
             if len(cuts) == len(boundaries):
                 safe_end = len(pcm)
             elif words:
@@ -214,7 +196,6 @@ class Narration:
             else:
                 safe_end = emitted
 
-            # emit each finished chunk with its gap, then any safe audio after it
             while gaps_emitted < len(cuts):
                 cut = offset_of(cuts[gaps_emitted])
                 if cut > safe_end:
@@ -233,7 +214,6 @@ class Narration:
                 emitted = safe_end
                 yield block
 
-        # rebuild from the full alignment and prove it matches what was streamed
         words = words_from_chars(chars, starts, ends)
         gapped, shifted, timings = insert_gaps(bytes(pcm), words, self._counts)
         if digest.digest() != hashlib.sha256(gapped[:sent]).digest():
@@ -245,6 +225,5 @@ class Narration:
 
 
 async def stream_answer(text: str, voice_id: str) -> AsyncIterator[bytes]:
-    """Synthesise a reply; drop the timings nobody needs."""
     async for pcm, _, _, _ in _events(text, voice_id):
         yield pcm

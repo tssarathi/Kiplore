@@ -20,7 +20,6 @@ import {
 
 type ResumeReport = { seq: number; position: number; paused: boolean };
 
-/** The player: connects to the room, holds the session, and drives transport. */
 export default function PlayButton({
   collection,
   storyId,
@@ -52,14 +51,13 @@ export default function PlayButton({
         publishDefaults: { dtx: false },
       }),
   );
-  // refs, not state: handlers register once and would close over a stale render
+  
   const lastSeq = useRef(0);
   const heard = useRef({ position: 0, paused: false });
   const report = useRef<ResumeReport | null>(null);
   const reportSeq = useRef(0);
   const retry = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // leaving the page ends the session; the agent decides hold or tear down
   useEffect(
     () => () => {
       if (retry.current !== null) clearTimeout(retry.current);
@@ -68,7 +66,6 @@ export default function PlayButton({
     [room],
   );
 
-  // sent unreliably: a lost press is one click away, a late one lands wrong
   function send(message: object, reliable = false) {
     room.localParticipant.publishData(
       new TextEncoder().encode(JSON.stringify(message)),
@@ -76,8 +73,6 @@ export default function PlayButton({
     );
   }
 
-  /** Report our position until the agent acknowledges or the tries run out. */
-  // a reconnect can land before the agent is ready, so it repeats with backoff
   function sendReport(attempt: number) {
     if (report.current === null) return;
     if (attempt >= MAX_RESUME_ATTEMPTS) {
@@ -91,7 +86,6 @@ export default function PlayButton({
     );
   }
 
-  /** Token, handlers, connect, start audio, enable the microphone. */
   async function play(voiceId: string) {
     setStatus("Connecting");
     setChosen(voiceId);
@@ -109,7 +103,6 @@ export default function PlayButton({
     }
     const { token, url } = await response.json();
 
-    // the track must be attached to an element in the page before it is audible
     room.on(RoomEvent.TrackSubscribed, (track) => {
       document.body.appendChild(track.attach());
       setStatus("Narrator is speaking");
@@ -126,7 +119,7 @@ export default function PlayButton({
         if (retry.current !== null) clearTimeout(retry.current);
         return;
       }
-      // each message is a snapshot, so an old one is dropped, not applied late
+      
       if (message.seq <= lastSeq.current) return;
       lastSeq.current = message.seq;
       heard.current = { position: message.position, paused: message.paused };
@@ -135,11 +128,11 @@ export default function PlayButton({
       setPaused(message.paused);
       setCaption(message.caption);
     });
-    // snapshot what was heard now; by reconnect the agent may have moved on
+    
     room.on(RoomEvent.Reconnecting, () => {
       setReconnecting(true);
       setStatus("Reconnecting");
-      // nothing heard yet, so there is no position worth reporting
+      
       if (lastSeq.current === 0) return;
       reportSeq.current += 1;
       report.current = { seq: reportSeq.current, ...heard.current };
@@ -157,14 +150,13 @@ export default function PlayButton({
 
     await room.connect(url, token);
     setPhase("live");
-    // browsers block audio without a gesture; the click here usually counts
+    
     await room
       .startAudio()
       .catch(() => setStatus("Sound is blocked in this browser"));
     await room.localParticipant.setMicrophoneEnabled(true);
   }
 
-  // transport is disabled when no agent is there to receive it
   const busy = phase !== "live" || reconnecting;
 
   return (

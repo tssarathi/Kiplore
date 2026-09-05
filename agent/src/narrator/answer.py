@@ -1,5 +1,3 @@
-"""One HTTP call to write the reply, and cleaning it up."""
-
 import os
 
 import aiohttp
@@ -15,15 +13,12 @@ from narrator.config import (
 
 
 def shape(answer: str) -> str:
-    """Strip tags and asterisks: a bracket is an instruction, not a typo."""
     return TAG.sub("", answer).replace("*", "").strip() or ANSWER_FALLBACK
 
 
 async def write_answer(
     title: str, story_so_far: str, question: str, spoken: list[str]
 ) -> str:
-    """One POST: the story so far and the last six replies."""
-    # recent replies go back in, so two answers do not open the same way
     recent = "\n".join(f"- {reply}" for reply in spoken[-RECENT_ANSWERS:])
     prompt = ANSWER_PROMPT.format(
         title=title, story_so_far=story_so_far, recent=recent or "- (nothing yet)"

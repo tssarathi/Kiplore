@@ -1,10 +1,7 @@
-// artwork drawn from an id, so nothing ships and the markup matches on hydration
-
 const W = 240;
 const H = 100;
 const CELL = 3;
 
-/** FNV-1a plus xorshift: same id, same picture, on both sides. */
 function seeded(id: string) {
   let hash = 2166136261;
   for (const char of id) {
@@ -18,9 +15,8 @@ function seeded(id: string) {
   };
 }
 
-/** A drift of dots across a card, thinning out towards one corner. */
 export default function CollectionArt({ id }: { id: string }) {
-  // a direction of its own per id, so two collections rarely lean the same way
+  
   const random = seeded(id);
   const angle = random() * Math.PI * 2;
   const dx = Math.cos(angle);

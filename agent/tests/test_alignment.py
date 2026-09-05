@@ -1,10 +1,7 @@
-"""Alignment is where a silent bug hides: nothing crashes, the captions just drift."""
-
 from narrator.alignment import heard_text, to_segments, words_from_chars
 
 
 def timed(text: str) -> tuple[list[str], list[float], list[float]]:
-    """One character every tenth of a second, which is all these tests need."""
     return (
         list(text),
         [i / 10 for i in range(len(text))],
@@ -13,7 +10,6 @@ def timed(text: str) -> tuple[list[str], list[float], list[float]]:
 
 
 def spans(texts: list[str]) -> list[dict]:
-    """One word every half second, back to back."""
     return [
         {"text": text, "start": i / 2, "end": (i + 1) / 2}
         for i, text in enumerate(texts)
@@ -24,7 +20,6 @@ def test_audio_tags_are_not_spoken_and_do_not_shift_the_words_after_them():
     words = words_from_chars(*timed("[warmly] Once upon a time"))
 
     assert [word["text"] for word in words] == ["Once", "upon", "a", "time"]
-    # "O" is the tenth character, so the first word starts at 0.9
     assert words[0]["start"] == 0.9
 
 
@@ -45,7 +40,6 @@ def test_the_story_so_far_stops_at_the_sentence_being_spoken():
 
     heard = heard_text([], segments, [], 1.5)
 
-    # the sentence in progress is included whole, the one after it is not
     assert heard == "He ran. She hid."
     assert "won" not in heard
 

@@ -1,5 +1,3 @@
-"""The microphone: energy for ducking, Deepgram for words."""
-
 import array
 import asyncio
 import logging
@@ -31,12 +29,10 @@ from narrator.envelope import GainRamp
 
 logger = logging.getLogger("narrator")
 
-MIC_FRAME_CAPACITY = 100  # frames buffered per track before old ones are dropped
+MIC_FRAME_CAPACITY = 100
 
 
 class Listener:
-    """Two listeners on one microphone: energy for ducking, words for questions."""
-
     def __init__(
         self,
         script: list[str],
@@ -69,11 +65,9 @@ class Listener:
         ]
 
     def add_microphone(self, track: rtc.Track) -> None:
-        """Called twice: for future tracks and for ones already there."""
         self._tasks.append(asyncio.create_task(self._forward(track)))
 
     async def aclose(self) -> None:
-        """Stop every task and close the transcriber."""
         for task in self._tasks:
             task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
@@ -81,7 +75,6 @@ class Listener:
         await self._stt.aclose()
 
     async def _forward(self, track: rtc.Track) -> None:
-        """One track into both listeners, noise-cancelled once."""
         stream = rtc.AudioStream(
             track,
             capacity=MIC_FRAME_CAPACITY,
@@ -95,12 +88,10 @@ class Listener:
             await stream.aclose()
 
     def _gate(self, frame: rtc.AudioFrame) -> None:
-        """The fast path: RMS, hysteresis, duck and un-duck."""
         samples = array.array("h", bytes(frame.data))
         if not samples:
             return
 
-        # RMS as a fraction of full scale, so the threshold is device-independent
         rms = math.sqrt(sum(s * s for s in samples) / len(samples)) / 32768
         seconds = len(samples) / frame.sample_rate / frame.num_channels
         if rms >= DUCK_RMS:
@@ -117,14 +108,12 @@ class Listener:
                 self._unduck()
 
     def _unduck(self) -> None:
-        """Restore volume, unless the story already stopped."""
         if self._ducked:
             self._ducked = False
             if self._playing.is_set():
                 self._ramp.set(1.0, DUCK_DECAY_SECONDS)
 
     async def _publish(self) -> None:
-        """Write captions on a separate task so writes cannot stall reads."""
         while True:
             segment, text, final = await self._captions.get()
             try:
@@ -142,7 +131,6 @@ class Listener:
                 logger.exception("caption publish failed")
 
     async def _read(self) -> None:
-        """The slow path: interim stops the story, final becomes a question."""
         try:
             async for event in self._stream:
                 if event.type == SpeechEventType.END_OF_SPEECH:
@@ -152,13 +140,11 @@ class Listener:
                     continue
                 text = event.alternatives[0].text
 
-                # interim is the earliest trustworthy sign the child really spoke
                 if event.type == SpeechEventType.INTERIM_TRANSCRIPT:
                     self._captions.put_nowait((self._segment, text, False))
                     self._spoke.set()
                     if self._playing.is_set():
                         self._playing.clear()
-                        # barge-in latency, which decides if interrupting feels rude
                         observe.event(
                             logger,
                             "narration stopped",
@@ -176,5 +162,4 @@ class Listener:
         except Exception:
             logger.exception("transcription failed")
             self._unduck()
-            # an empty question unblocks the loop, so a dead transcriber is not silence
             self._questions.put_nowait("")

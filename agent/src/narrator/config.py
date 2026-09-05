@@ -1,64 +1,54 @@
-"""Every tunable number, and the answer prompt."""
-
 from pathlib import Path
 
-# beside the agent, so the worker and the web client read the same files
 LIBRARY_DIR = Path(__file__).resolve().parents[3] / "library"
 
-# signed 16-bit mono PCM throughout
-SAMPLE_RATE = 22050  # enough for speech; must match OUTPUT_FORMAT below
+SAMPLE_RATE = 22050
 NUM_CHANNELS = 1
-CHUNK_SECONDS = 0.02  # one 20 ms frame, the usual real-time unit
+CHUNK_SECONDS = 0.02
 FRAME_SAMPLES = int(SAMPLE_RATE * CHUNK_SECONDS)
-SOURCE_QUEUE_MS = 200  # paces playback; little is thrown away on an interrupt
+SOURCE_QUEUE_MS = 200
 
-# fades, in seconds; a dead cut clicks, so every stop and start slides
-PAUSE_FADE_SECONDS = 0.15  # no click, still feels immediate
-RESUME_FADE_FROM = 0.65  # part volume sounds like a breath before speaking
+PAUSE_FADE_SECONDS = 0.15
+RESUME_FADE_FROM = 0.65
 RESUME_FADE_SECONDS = 0.4
-RESUME_BREATH_SECONDS = 0.2  # nobody starts the next sentence the instant one ends
+RESUME_BREATH_SECONDS = 0.2
 
-# ducking runs on raw mic energy; a transcript costs a round trip they hear
-DUCK_VOLUME = 0.25  # audible underneath: polite, not switched off
-DUCK_RMS = 0.01  # 1% of full scale, so it is device-independent
-DUCK_FRAMES = 3  # filters a cough, still only tens of milliseconds
+DUCK_VOLUME = 0.25
+DUCK_RMS = 0.01
+DUCK_FRAMES = 3
 DUCK_ATTACK_SECONDS = 0.12
 DUCK_DECAY_SECONDS = 0.25
-DUCK_RELEASE_SECONDS = 0.7  # rides over the pauses inside a child's sentence
+DUCK_RELEASE_SECONDS = 0.7
 
-# Deepgram's confidence the turn is over
-EOT_THRESHOLD = 0.8  # higher waits politely, lower talks over a thinking child
+EOT_THRESHOLD = 0.8
 
-RECONNECT_GRACE_SECONDS = 60  # fits under the room's 90s departure timeout
-RESUME_REPORT_SECONDS = 30  # wait for the client's position before using our own
+RECONNECT_GRACE_SECONDS = 60
+RESUME_REPORT_SECONDS = 30
 
-CHUNK_GAP_SECONDS = 0.8  # a real storyteller's pause between paragraphs
-MAX_STORY_TEXT_CHARS = 5000  # v3's per-request limit
+CHUNK_GAP_SECONDS = 0.8
+MAX_STORY_TEXT_CHARS = 5000
 
-ELEVEN_MODEL = "eleven_v3"  # the only model that honours the tags in the scripts
+ELEVEN_MODEL = "eleven_v3"
 OUTPUT_FORMAT = "pcm_22050"
-SEED = 42  # repeatability, which is what makes the cache meaningful
-PIPELINE_VERSION = 1  # in the cache key; raise it to retire every stored render
+SEED = 42
+PIPELINE_VERSION = 1
 
-# cache timeouts, in seconds
 CACHE_CONNECT_SECONDS = 5
-CACHE_READ_SECONDS = 30  # budgets the transfer, which nobody is waiting on
-CACHE_RESOLVE_SECONDS = 1.5  # budgets the decision; the child is waiting on it
+CACHE_READ_SECONDS = 30
+CACHE_RESOLVE_SECONDS = 1.5
 
-# gates into the cache; a bad render, once stored, is served for ever
 MIN_CHARS_PER_SECOND = 6.0
 MAX_CHARS_PER_SECOND = 25.0
 SILENCE_RMS = 0.004
 SILENCE_WINDOW_SECONDS = 0.05
-MAX_SILENCE_SECONDS = 2.0  # longer than any deliberate gap, shorter than a stall
-MIN_ALIGNMENT_COVERAGE = 0.85  # below this the end of the story has no captions
+MAX_SILENCE_SECONDS = 2.0
+MIN_ALIGNMENT_COVERAGE = 0.85
 
 ANSWER_MODEL = "gpt-5.4"
-ANSWER_TIMEOUT_SECONDS = 10.0  # a child sits in silence; a fallback beats a pause
-RECENT_ANSWERS = 6  # stops repeated openings without wasting context
-CLARIFY_WAIT_SECONDS = 12.0  # a fair chance to repeat, then the story goes on
+ANSWER_TIMEOUT_SECONDS = 10.0
+RECENT_ANSWERS = 6
+CLARIFY_WAIT_SECONDS = 12.0
 
-# guards against spoiling, inventing, and promising to change a written story
 ANSWER_PROMPT = """# Role and objective
 You are the voice telling the bedtime story "{title}" to a young child. The child has just
 spoken to you in the middle of the story. You answer out loud, in the same voice that has
@@ -130,10 +120,8 @@ them again, and do not say anything close to them. Reach for different words.
 
 Now reply to the child."""
 
-# spoken when nothing is left of the answer: warm, and promises nothing
 ANSWER_FALLBACK = "Mm, I am not sure about that one."
 
-# folded into the cache key; 0.5 is Natural, which ElevenLabs advise for tags
 VOICE_SETTINGS = {
     "stability": 0.5,
     "similarity_boost": 0.75,

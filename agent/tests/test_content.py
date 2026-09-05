@@ -1,5 +1,3 @@
-"""Story ids arrive in join metadata, so a path is proved, not trusted."""
-
 import pytest
 
 from narrator.content import load_story

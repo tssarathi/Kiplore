@@ -2,7 +2,6 @@ import Link from "next/link";
 import CollectionArt from "@/components/CollectionArt";
 import { getCollections } from "@/lib/content";
 
-// a server component: collections are read off disk before the markup is sent
 export default async function HomePage() {
   const collections = await getCollections();
 

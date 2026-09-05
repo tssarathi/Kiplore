@@ -1,5 +1,3 @@
-"""Storing and fetching finished renders."""
-
 import asyncio
 import hashlib
 import json
@@ -49,8 +47,6 @@ def _client():
 
 
 def render_id(story: dict, eleven_id: str) -> str:
-    """Hash every input that shapes the sound."""
-    # naming a thing after its contents, so an edit anywhere retires the old render
     identity = {
         "script": story["script"],
         "voice_id": eleven_id,
@@ -66,7 +62,6 @@ def render_id(story: dict, eleven_id: str) -> str:
 
 
 def prefix(collection: str, story_id: str, voice_id: str, render: str) -> str:
-    """Readable path, hash at the end."""
     return f"library/{collection}/{story_id}/{voice_id}/{render}"
 
 
@@ -87,27 +82,22 @@ def _put(client, key: str, body: bytes, content_type: str) -> None:
 
 
 def _resolve(at: str) -> dict | None:
-    """The metadata record; finding one is the whole cache decision."""
     raw = _get(_client(), f"{at}/{TIMINGS}")
     return None if raw is None else json.loads(raw)
 
 
 def _fetch(at: str, meta: dict) -> tuple[bytes, Timings]:
-    """The audio a record points at, checked against the length it claims."""
     audio = _get(_client(), f"{at}/{meta['audio']}")
     if audio is None:
         raise ValueError(f"{meta['audio']} is missing")
 
-    # a length mismatch means a half-written upload
     if len(audio) != meta["bytes"]:
         raise ValueError("render audio does not match its timings")
     return audio, Timings(meta["segments"], meta["chunk_timings"])
 
 
 async def load(at: str) -> tuple[bytes, Timings] | None:
-    """Swallow every failure; a miss only costs a render."""
     try:
-        # short timeout on the lookup alone; the child is waiting on that, not audio
         meta = await asyncio.wait_for(
             asyncio.to_thread(_resolve, at), CACHE_RESOLVE_SECONDS
         )
@@ -123,12 +113,10 @@ async def load(at: str) -> tuple[bytes, Timings] | None:
 
 
 def _save(at: str, pcm: bytes, timings: Timings, spoken: str) -> str | None:
-    """Quality check, upload audio, then metadata last."""
     reason = qc.inspect(pcm, spoken, timings.segments, timings.chunk_timings)
     if reason is not None:
         return reason
 
-    # writing in the right order: found timings mean the audio finished uploading
     client = _client()
     audio = f"audio-{hashlib.sha256(pcm).hexdigest()[:12]}.pcm"
     _put(client, f"{at}/{audio}", pcm, "application/octet-stream")
@@ -149,7 +137,6 @@ def _save(at: str, pcm: bytes, timings: Timings, spoken: str) -> str | None:
 
 
 async def save(at: str, pcm: bytes, timings: Timings, spoken: str) -> str | None:
-    """Store a render, returning the reason it was not stored, or None."""
     try:
         return await asyncio.to_thread(_save, at, pcm, timings, spoken)
     except REMOTE_ERRORS as error:

@@ -1,5 +1,3 @@
-"""The reconnect path, driven without a network: a client the agent cannot trust."""
-
 import asyncio
 from typing import cast
 
@@ -16,8 +14,6 @@ LEAVE = rtc.DisconnectReason.CLIENT_INITIATED
 
 
 class FakeSource:
-    """queued_duration and clear_queue, all Session asks of a real source."""
-
     def __init__(self, queued: float) -> None:
         self.queued_duration = queued
 
@@ -68,7 +64,6 @@ def test_a_repeated_position_report_is_acknowledged_but_applied_once():
         assert session.phase is Phase.ACTIVE
         assert player.position == pytest.approx(5.0)
 
-        # the client retries until acknowledged, so this arrives twice
         assert session.report(1, 0.0, False) == 1
         assert player.position == pytest.approx(5.0)
         session.close()
@@ -78,7 +73,6 @@ def test_a_repeated_position_report_is_acknowledged_but_applied_once():
 
 def test_a_report_ahead_of_what_was_sent_cannot_move_the_story_forward():
     async def scenario() -> None:
-        # still playing, so a claim beyond what was sent is ignored outright
         session, player = narrating(7.0)
         session.dropped(DROP)
         session.rejoined()
@@ -86,7 +80,6 @@ def test_a_report_ahead_of_what_was_sent_cannot_move_the_story_forward():
         assert player.position == pytest.approx(7.0)
         session.close()
 
-        # paused, so the claim is acted on, but clamped to what was sent
         session, player = narrating(7.0)
         session.dropped(DROP)
         session.rejoined()

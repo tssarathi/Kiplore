@@ -1,5 +1,3 @@
-"""What to do when the listener's connection dies."""
-
 import asyncio
 import logging
 import math
@@ -20,7 +18,6 @@ from narrator.player import Player
 
 logger = logging.getLogger("narrator")
 
-# leaving on purpose ends the story; any other reason might be a network drop
 CLEAN_LEAVES = frozenset(
     {
         rtc.DisconnectReason.CLIENT_INITIATED,
@@ -34,16 +31,12 @@ CLEAN_LEAVES = frozenset(
 
 
 class Phase(Enum):
-    """Three phases: narrating, waiting out a drop, or over."""
-
     ACTIVE = "active"
     HELD = "held"
     LEFT = "left"
 
 
 class Session:
-    """The listener's presence, and the story's position across a reconnect."""
-
     def __init__(
         self,
         source: rtc.AudioSource,
@@ -68,13 +61,11 @@ class Session:
         self._changed = asyncio.Event()
 
     async def ready(self) -> None:
-        """Block while held: the loop's only knowledge of reconnects."""
         while self.phase is Phase.HELD:
             self._changed.clear()
             await self._changed.wait()
 
     def dropped(self, reason: rtc.DisconnectReason.ValueType | None) -> None:
-        """Rewind the queue, park the position, arm the timer."""
         if self.phase is Phase.LEFT:
             return
         if reason in CLEAN_LEAVES:
@@ -83,7 +74,6 @@ class Session:
         if self.phase is Phase.HELD:
             return
 
-        # parking the story at the last thing heard, not the last thing sent
         queued = self._source.queued_duration if self._playing.is_set() else 0.0
         self._playing.clear()
         self._spoke.set()
@@ -100,15 +90,12 @@ class Session:
         )
 
     def rejoined(self) -> None:
-        """Coming back: open a window for the client to report its position."""
         if self.phase is not Phase.HELD:
             return
         self._arm(RESUME_REPORT_SECONDS, self._resume_unreported)
         logger.info("listener reconnected, awaiting position report")
 
     def report(self, seq: object, position: object, paused: object) -> int | None:
-        """Validate everything, resume backwards only, acknowledge repeats."""
-        # every field checked: this comes from a client the agent does not control
         if self.phase is Phase.LEFT:
             return None
         if not isinstance(seq, int) or isinstance(seq, bool) or seq <= 0:
@@ -120,13 +107,11 @@ class Session:
         if not isinstance(paused, bool):
             return None
 
-        # the client retries until acknowledged, so a repeat is acked, not applied
         if seq <= self._seq:
             return seq
         self._seq = seq
         self._disarm()
 
-        # never a position ahead of what was sent; that would skip part of the story
         heard = self._player.position - self._source.queued_duration
         if position < heard or paused:
             self._source.clear_queue()
@@ -143,7 +128,6 @@ class Session:
         return seq
 
     def left(self) -> None:
-        """End the story for good."""
         if self.phase is Phase.LEFT:
             return
         self._disarm()
@@ -153,11 +137,9 @@ class Session:
         logger.info("listener gone")
 
     def close(self) -> None:
-        """Drop any pending timer as the job shuts down."""
         self._disarm()
 
     def _resume_unreported(self) -> None:
-        """Carry on from the agent's own position when no report arrived."""
         if self.phase is not Phase.HELD:
             return
         self._ramp.snap(1.0)
@@ -169,13 +151,11 @@ class Session:
         self._changed.set()
 
     def _wake(self) -> None:
-        """Drain the queue and push the None sentinel."""
         while not self._questions.empty():
             self._questions.get_nowait()
         self._questions.put_nowait(None)
 
     def _arm(self, seconds: float, expire: Callable[[], None]) -> None:
-        """One-shot timer that always cancels the previous one."""
         self._disarm()
 
         async def countdown() -> None:

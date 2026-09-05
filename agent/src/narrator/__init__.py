@@ -1,1 +1,0 @@
-"""Kiplore's voice agent."""

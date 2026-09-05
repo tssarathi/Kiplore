@@ -1,12 +1,10 @@
-// three flat faces from the same shapes: no photographs, no real likenesses
-
 export type Look = "elder" | "woman" | "man";
 
 const FACE = "var(--color-card)";
 const INK = "var(--color-graphite)";
 
 export default function VoiceAvatar({ look }: { look: Look }) {
-  // a per-look id, or three avatars on one page share the first clip path
+  
   const clip = `head-${look}`;
   return (
     <svg viewBox="0 0 64 64" className="size-full" aria-hidden="true">

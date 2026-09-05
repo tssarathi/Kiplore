@@ -10,7 +10,7 @@ export default async function CollectionPage({
 }: {
   params: Promise<{ collection: string }>;
 }) {
-  // the id came from the URL, so an unknown collection is a 404, not a blank page
+  
   const { collection } = await params;
   const stories = await getStories(collection);
   if (stories.length === 0) notFound();

@@ -1,5 +1,3 @@
-// inline SVG rather than an icon package: five icons do not earn a dependency
-
 type IconProps = { className?: string };
 
 const line = {
