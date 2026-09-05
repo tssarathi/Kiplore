@@ -4,6 +4,7 @@ import time
 from contextvars import ContextVar
 
 session: ContextVar[str] = ContextVar("session", default="")
+logger = logging.getLogger("narrator")
 
 
 class JsonLines(logging.Formatter):
@@ -23,7 +24,6 @@ class JsonLines(logging.Formatter):
 def setup() -> None:
     handler = logging.StreamHandler()
     handler.setFormatter(JsonLines())
-    logger = logging.getLogger("narrator")
     logger.handlers[:] = [handler]
     logger.setLevel(logging.INFO)
     logger.propagate = False

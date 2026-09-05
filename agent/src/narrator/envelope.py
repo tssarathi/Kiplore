@@ -1,5 +1,7 @@
 import array
 
+from narrator.config import RESUME_FADE_FROM, RESUME_FADE_SECONDS
+
 
 class GainRamp:
     def __init__(self) -> None:
@@ -14,6 +16,10 @@ class GainRamp:
     def set(self, target: float, seconds: float) -> None:
         self.target = target
         self._rate = (target - self.gain) / seconds
+
+    def resume(self) -> None:
+        self.snap(RESUME_FADE_FROM)
+        self.set(1.0, RESUME_FADE_SECONDS)
 
     def step(self, seconds: float) -> float:
         if self.gain != self.target:
