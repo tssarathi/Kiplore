@@ -39,7 +39,7 @@ export default function CollectionArt({ id }: { id: string }) {
       aria-hidden="true"
     >
       <rect width={W} height={H} fill="var(--color-sage)" />
-      <g fill="var(--color-graphite)">
+      <g fill="var(--color-ink)">
         {dots.map((dot, i) => (
           <rect key={i} x={dot.x} y={dot.y} width={CELL - 1} height={CELL - 1} />
         ))}

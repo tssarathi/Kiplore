@@ -1,7 +1,7 @@
 export type Look = "elder" | "woman" | "man";
 
 const FACE = "var(--color-card)";
-const INK = "var(--color-graphite)";
+const INK = "var(--color-ink)";
 
 export default function VoiceAvatar({ look }: { look: Look }) {
   
