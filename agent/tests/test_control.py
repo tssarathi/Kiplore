@@ -1,6 +1,7 @@
+import asyncio
 import json
 
-from narrator.main import control
+from narrator.main import control, drop_stale
 
 
 def encode(message: object) -> bytes:
@@ -35,3 +36,29 @@ def test_a_malformed_packet_never_reaches_the_player():
 
 def test_bytes_that_are_not_json_are_refused_rather_than_thrown():
     assert control(b"\xff\xfe") is None
+
+
+def test_a_question_left_over_from_an_earlier_turn_is_never_answered_late():
+    async def scenario() -> None:
+        questions: asyncio.Queue[str | None] = asyncio.Queue()
+        questions.put_nowait("Hello?")
+        questions.put_nowait("Hello? Hello?")
+
+        assert drop_stale(questions) == 2
+        assert questions.empty()
+
+    asyncio.run(scenario())
+
+
+def test_a_departure_outlives_the_questions_it_cancels():
+    async def scenario() -> None:
+        questions: asyncio.Queue[str | None] = asyncio.Queue()
+        questions.put_nowait("Hello?")
+        questions.put_nowait(None)
+        questions.put_nowait("said after the drop")
+
+        drop_stale(questions)
+
+        assert questions.get_nowait() is None
+
+    asyncio.run(scenario())

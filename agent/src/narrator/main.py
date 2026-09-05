@@ -108,6 +108,18 @@ async def announce(ctx: JobContext, state: str) -> None:
         logger.warning(f"could not announce {state}")
 
 
+def drop_stale(questions: asyncio.Queue[str | None]) -> int:
+    dropped, ended = 0, False
+    while not questions.empty():
+        if questions.get_nowait() is None:
+            ended = True
+        else:
+            dropped += 1
+    if ended:
+        questions.put_nowait(None)
+    return dropped
+
+
 async def next_question(
     questions: asyncio.Queue[str | None], within: float
 ) -> str | None:
@@ -258,6 +270,9 @@ async def entrypoint(ctx: JobContext) -> None:
             await session.ready()
             if session.phase is Phase.LEFT:
                 break
+            stale = drop_stale(questions)
+            if stale:
+                logger.info(f"dropped {stale} question(s) said before this turn")
             playing.set()
             await announce(ctx, "speaking")
             await play(source, player, playing, paused, ramp, producer)
