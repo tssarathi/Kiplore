@@ -126,3 +126,12 @@ library/               story content as JSON, one directory per collection
 
 This is a single user demonstration with no authentication or persistence. The token
 endpoint returns 403 outside development.
+
+## Licence
+
+[PolyForm Noncommercial 1.0.0](LICENSE), SPDX `PolyForm-Noncommercial-1.0.0`.
+Copyright 2026 Sarathi Thirumalai Soundararajan.
+
+Read it, study it, run it for yourself. Any commercial use needs a separate
+licence from me. The twelve stories under `library/` are public domain and the
+licence does not affect them.
