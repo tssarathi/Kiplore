@@ -1,7 +1,7 @@
 "use client";
 
 import { RoomContext } from "@livekit/components-react";
-import { Room, RoomEvent } from "livekit-client";
+import { DisconnectReason, Room, RoomEvent } from "livekit-client";
 import { useEffect, useRef, useState } from "react";
 import {
   BackIcon,
@@ -34,6 +34,7 @@ export default function PlayButton({
   );
   const [chosen, setChosen] = useState<string | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
+  const [warning, setWarning] = useState<string | null>(null);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -49,7 +50,7 @@ export default function PlayButton({
         publishDefaults: { dtx: false },
       }),
   );
-  
+
   const lastSeq = useRef(0);
   const heard = useRef({ position: 0, paused: false });
   const report = useRef<ResumeReport | null>(null);
@@ -57,15 +58,15 @@ export default function PlayButton({
   const retry = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wired = useRef(false);
 
-  function send(message: object, reliable = false) {
+  function send(message: object) {
     room.localParticipant.publishData(
       new TextEncoder().encode(JSON.stringify(message)),
-      { reliable },
+      { reliable: true },
     );
   }
 
   function sendReport(attempt: number) {
-    
+
     if (retry.current !== null) clearTimeout(retry.current);
     retry.current = null;
     if (report.current === null) return;
@@ -73,7 +74,7 @@ export default function PlayButton({
       report.current = null;
       return;
     }
-    send({ action: "resume-at", ...report.current }, true);
+    send({ action: "resume-at", ...report.current });
     retry.current = setTimeout(
       () => sendReport(attempt + 1),
       RESUME_RETRY_BASE_MS * 2 ** attempt,
@@ -103,13 +104,15 @@ export default function PlayButton({
       setPhase("picking");
       return;
     }
-    
+
     if (!wired.current) {
       wired.current = true;
-      
+
       room.on(RoomEvent.TrackSubscribed, (track) => {
         document.body.appendChild(track.attach());
-        setStatus("Narrator is speaking");
+        setStatus((current) =>
+          current === "Connecting" ? "Narrator is speaking" : current,
+        );
       });
       room.on(RoomEvent.TrackUnsubscribed, (track) => {
         track.detach().forEach((element) => element.remove());
@@ -123,7 +126,7 @@ export default function PlayButton({
           if (retry.current !== null) clearTimeout(retry.current);
           return;
         }
-        
+
         if (message.seq <= lastSeq.current) return;
         lastSeq.current = message.seq;
         heard.current = { position: message.position, paused: message.paused };
@@ -132,11 +135,11 @@ export default function PlayButton({
         setPaused(message.paused);
         setCaption(message.caption);
       });
-      
+
       room.on(RoomEvent.Reconnecting, () => {
         setReconnecting(true);
         setStatus("Reconnecting");
-        
+
         reportSeq.current += 1;
         report.current = { seq: reportSeq.current, ...heard.current };
       });
@@ -145,11 +148,19 @@ export default function PlayButton({
         setStatus("Narrator is speaking");
         sendReport(0);
       });
-      room.on(RoomEvent.Disconnected, () => {
+      room.on(RoomEvent.Disconnected, (reason) => {
+        if (retry.current !== null) clearTimeout(retry.current);
+        retry.current = null;
+        report.current = null;
         setPhase("ended");
         setReconnecting(false);
         setPaused(true);
-        setStatus("The story has ended");
+        setStatus(
+          reason === DisconnectReason.ROOM_DELETED ||
+            reason === DisconnectReason.CLIENT_INITIATED
+            ? "The story has ended"
+            : "The connection was lost",
+        );
       });
     }
 
@@ -165,10 +176,10 @@ export default function PlayButton({
 
     await room
       .startAudio()
-      .catch(() => setStatus("Sound is blocked in this browser"));
+      .catch(() => setWarning("Sound is blocked in this browser"));
     await room.localParticipant
       .setMicrophoneEnabled(true)
-      .catch(() => setStatus("The microphone is unavailable"));
+      .catch(() => setWarning("The microphone is unavailable"));
   }
 
   const busy = phase !== "live" || reconnecting;
@@ -207,7 +218,12 @@ export default function PlayButton({
         </div>
       ) : (
         <div className="rounded-[8px] bg-card px-6 py-10 sm:px-10">
-          <Narrator caption={caption} status={status} ended={phase === "ended"}>
+          <Narrator
+            caption={caption}
+            status={status}
+            warning={warning}
+            ended={phase === "ended"}
+          >
             <div className="mt-10 flex items-center gap-4">
               <span className="label w-10 shrink-0 text-xs text-quiet tabular-nums">
                 {formatTime(position)}

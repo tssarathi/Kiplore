@@ -13,11 +13,13 @@ type Line = { mine: boolean; text: string };
 export default function Narrator({
   caption,
   status,
+  warning,
   ended,
   children,
 }: {
   caption: string | null;
   status: string;
+  warning: string | null;
   ended: boolean;
   children: React.ReactNode;
 }) {
@@ -42,7 +44,7 @@ export default function Narrator({
 
   if (caption !== seen.caption || spoken !== seen.spoken) {
     setSeen({ caption, spoken });
-    
+
     if (spoken !== seen.spoken && spoken !== null) {
       setLine({ mine, text: spoken });
     } else if (caption !== null && !midSentence) {
@@ -70,7 +72,7 @@ export default function Narrator({
         {line && !ended ? (
           <>
             {line.mine && (
-              <span className="label mr-2 text-xs text-accent">You —</span>
+              <span className="label mr-2 text-xs text-accent">You</span>
             )}
             <span className={line.mine ? "text-quiet" : "text-ink"}>
               {line.text}
@@ -80,6 +82,9 @@ export default function Narrator({
           <span className="label text-xs text-quiet">{status}</span>
         )}
       </p>
+      {warning && !ended && (
+        <p className="label mt-3 text-center text-xs text-quiet">{warning}</p>
+      )}
     </div>
   );
 }
