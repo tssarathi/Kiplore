@@ -3,9 +3,7 @@ from pathlib import Path
 LIBRARY_DIR = Path(__file__).resolve().parents[3] / "library"
 
 SAMPLE_RATE = 22050
-NUM_CHANNELS = 1
 CHUNK_SECONDS = 0.02
-FRAME_SAMPLES = int(SAMPLE_RATE * CHUNK_SECONDS)
 SOURCE_QUEUE_MS = 200
 
 PAUSE_FADE_SECONDS = 0.15
