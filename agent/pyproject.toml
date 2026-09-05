@@ -9,7 +9,7 @@ requires-python = ">=3.13"
 dependencies = [
     "aiohttp>=3.14.3",
     "boto3>=1.43.87",
-    "botocore>=1.43.87",  # imported directly by cache.py, not just via boto3
+    "botocore>=1.43.87",
     "livekit-agents[deepgram]>=1.7.1",
     "livekit-plugins-noise-cancellation>=0.3.0",
     "python-dotenv>=1.2.3",
