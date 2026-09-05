@@ -53,9 +53,13 @@ async def play(
     ramp: GainRamp,
     producer: asyncio.Task[None],
 ) -> None:
+    captured = False
     while True:
         if not (playing.is_set() and paused.is_set()) and ramp.target != 0.0:
-            ramp.set(0.0, PAUSE_FADE_SECONDS)
+            if captured:
+                ramp.set(0.0, PAUSE_FADE_SECONDS)
+            else:
+                ramp.snap(0.0)
         if ramp.gain == 0.0:
             if not playing.is_set():
                 return
@@ -78,6 +82,7 @@ async def play(
             continue
 
         await source.capture_frame(frame(scale(pcm, ramp.step(CHUNK_SECONDS))))
+        captured = True
 
 
 async def speak_reply(
