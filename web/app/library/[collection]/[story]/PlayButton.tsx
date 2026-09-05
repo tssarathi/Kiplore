@@ -11,12 +11,10 @@ import {
 } from "@/components/icons";
 import VoiceAvatar, { type Look } from "@/components/VoiceAvatar";
 import Narrator from "./Narrator";
-import {
-  MAX_RESUME_ATTEMPTS,
-  RESUME_RETRY_BASE_MS,
-  formatTime,
-  parseServerMessage,
-} from "@/lib/storyState";
+import { formatTime, parseServerMessage } from "@/lib/storyState";
+
+const MAX_RESUME_ATTEMPTS = 7;
+const RESUME_RETRY_BASE_MS = 250;
 
 type ResumeReport = { seq: number; position: number; paused: boolean };
 
@@ -57,14 +55,7 @@ export default function PlayButton({
   const report = useRef<ResumeReport | null>(null);
   const reportSeq = useRef(0);
   const retry = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(
-    () => () => {
-      if (retry.current !== null) clearTimeout(retry.current);
-      void room.disconnect();
-    },
-    [room],
-  );
+  const wired = useRef(false);
 
   function send(message: object, reliable = false) {
     room.localParticipant.publishData(
@@ -74,6 +65,9 @@ export default function PlayButton({
   }
 
   function sendReport(attempt: number) {
+    
+    if (retry.current !== null) clearTimeout(retry.current);
+    retry.current = null;
     if (report.current === null) return;
     if (attempt >= MAX_RESUME_ATTEMPTS) {
       report.current = null;
@@ -85,6 +79,14 @@ export default function PlayButton({
       RESUME_RETRY_BASE_MS * 2 ** attempt,
     );
   }
+
+  useEffect(
+    () => () => {
+      if (retry.current !== null) clearTimeout(retry.current);
+      void room.disconnect();
+    },
+    [room],
+  );
 
   async function play(voiceId: string) {
     setStatus("Connecting");
@@ -101,60 +103,72 @@ export default function PlayButton({
       setPhase("picking");
       return;
     }
-    const { token, url } = await response.json();
-
-    room.on(RoomEvent.TrackSubscribed, (track) => {
-      document.body.appendChild(track.attach());
-      setStatus("Narrator is speaking");
-    });
-    room.on(RoomEvent.TrackUnsubscribed, (track) => {
-      track.detach().forEach((element) => element.remove());
-    });
-    room.on(RoomEvent.DataReceived, (payload) => {
-      const message = parseServerMessage(payload);
-      if (message === null) return;
-      if (message.type === "resume-ack") {
-        if (report.current?.seq !== message.seq) return;
-        report.current = null;
-        if (retry.current !== null) clearTimeout(retry.current);
-        return;
-      }
-      
-      if (message.seq <= lastSeq.current) return;
-      lastSeq.current = message.seq;
-      heard.current = { position: message.position, paused: message.paused };
-      setPosition(message.position);
-      setDuration(message.duration);
-      setPaused(message.paused);
-      setCaption(message.caption);
-    });
     
-    room.on(RoomEvent.Reconnecting, () => {
-      setReconnecting(true);
-      setStatus("Reconnecting");
+    if (!wired.current) {
+      wired.current = true;
       
-      if (lastSeq.current === 0) return;
-      reportSeq.current += 1;
-      report.current = { seq: reportSeq.current, ...heard.current };
-    });
-    room.on(RoomEvent.Reconnected, () => {
-      setReconnecting(false);
-      setStatus("Narrator is speaking");
-      sendReport(0);
-    });
-    room.on(RoomEvent.Disconnected, () => {
-      setPhase("ended");
-      setReconnecting(false);
-      setStatus("The story has ended");
-    });
+      room.on(RoomEvent.TrackSubscribed, (track) => {
+        document.body.appendChild(track.attach());
+        setStatus("Narrator is speaking");
+      });
+      room.on(RoomEvent.TrackUnsubscribed, (track) => {
+        track.detach().forEach((element) => element.remove());
+      });
+      room.on(RoomEvent.DataReceived, (payload) => {
+        const message = parseServerMessage(payload);
+        if (message === null) return;
+        if (message.type === "resume-ack") {
+          if (report.current?.seq !== message.seq) return;
+          report.current = null;
+          if (retry.current !== null) clearTimeout(retry.current);
+          return;
+        }
+        
+        if (message.seq <= lastSeq.current) return;
+        lastSeq.current = message.seq;
+        heard.current = { position: message.position, paused: message.paused };
+        setPosition(message.position);
+        setDuration(message.duration);
+        setPaused(message.paused);
+        setCaption(message.caption);
+      });
+      
+      room.on(RoomEvent.Reconnecting, () => {
+        setReconnecting(true);
+        setStatus("Reconnecting");
+        
+        reportSeq.current += 1;
+        report.current = { seq: reportSeq.current, ...heard.current };
+      });
+      room.on(RoomEvent.Reconnected, () => {
+        setReconnecting(false);
+        setStatus("Narrator is speaking");
+        sendReport(0);
+      });
+      room.on(RoomEvent.Disconnected, () => {
+        setPhase("ended");
+        setReconnecting(false);
+        setPaused(true);
+        setStatus("The story has ended");
+      });
+    }
 
-    await room.connect(url, token);
+    try {
+      const { token, url } = await response.json();
+      await room.connect(url, token);
+    } catch {
+      setStatus("Could not start the session");
+      setPhase("picking");
+      return;
+    }
     setPhase("live");
-    
+
     await room
       .startAudio()
       .catch(() => setStatus("Sound is blocked in this browser"));
-    await room.localParticipant.setMicrophoneEnabled(true);
+    await room.localParticipant
+      .setMicrophoneEnabled(true)
+      .catch(() => setStatus("The microphone is unavailable"));
   }
 
   const busy = phase !== "live" || reconnecting;
@@ -193,7 +207,7 @@ export default function PlayButton({
         </div>
       ) : (
         <div className="rounded-[8px] bg-card px-6 py-10 sm:px-10">
-          <Narrator caption={caption} status={status}>
+          <Narrator caption={caption} status={status} ended={phase === "ended"}>
             <div className="mt-10 flex items-center gap-4">
               <span className="label w-10 shrink-0 text-xs text-quiet tabular-nums">
                 {formatTime(position)}
@@ -227,7 +241,7 @@ export default function PlayButton({
                 onClick={() => send({ action: paused ? "resume" : "pause" })}
                 disabled={busy}
                 aria-label={paused ? "Play the story" : "Pause the story"}
-                className="flex size-16 cursor-pointer items-center justify-center rounded-full bg-graphite text-card transition duration-200 hover:bg-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-4 focus-visible:ring-offset-card focus-visible:outline-none disabled:cursor-default disabled:opacity-40"
+                className="flex size-16 cursor-pointer items-center justify-center rounded-full bg-ink text-card transition duration-200 hover:bg-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-4 focus-visible:ring-offset-card focus-visible:outline-none disabled:cursor-default disabled:opacity-40"
               >
                 {paused ? (
                   <PlayIcon className="size-6 translate-x-px" />

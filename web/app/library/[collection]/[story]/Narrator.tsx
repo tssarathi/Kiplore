@@ -13,10 +13,12 @@ type Line = { mine: boolean; text: string };
 export default function Narrator({
   caption,
   status,
+  ended,
   children,
 }: {
   caption: string | null;
   status: string;
+  ended: boolean;
   children: React.ReactNode;
 }) {
   const { state, audioTrack, agent } = useVoiceAssistant();
@@ -65,7 +67,7 @@ export default function Narrator({
         aria-live="polite"
         className="mono mt-8 min-h-12 text-center text-sm leading-relaxed text-balance"
       >
-        {line ? (
+        {line && !ended ? (
           <>
             {line.mine && (
               <span className="label mr-2 text-xs text-accent">You —</span>

@@ -12,9 +12,6 @@ export type ResumeAck = {
   seq: number;
 };
 
-export const MAX_RESUME_ATTEMPTS = 7;
-export const RESUME_RETRY_BASE_MS = 250;
-
 export function parseServerMessage(
   payload: Uint8Array,
 ): StoryState | ResumeAck | null {
