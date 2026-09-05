@@ -1,7 +1,8 @@
 import asyncio
 import json
 
-from narrator.main import control, drop_stale
+from narrator.alignment import Timings
+from narrator.main import control, drop_stale, resume_target
 
 
 def encode(message: object) -> bytes:
@@ -62,3 +63,18 @@ def test_a_departure_outlives_the_questions_it_cancels():
         assert questions.get_nowait() is None
 
     asyncio.run(scenario())
+
+
+def test_a_seek_during_the_answer_decides_where_the_story_resumes():
+    timings = Timings(
+        [
+            {"start": 0.0, "end": 8.5, "text": "Long ago there lived a Hare."},
+            {"start": 8.5, "end": 14.0, "text": "And oh, this Hare was fast."},
+        ],
+        [20.0],
+    )
+    carried = timings.segments[1]
+
+    assert resume_target(timings, carried, 11.3, 11.3) == 14.0
+    assert resume_target(timings, carried, 11.3, 1.3) == 0.0
+    assert resume_target(timings, None, 11.3, 11.3) == 8.5

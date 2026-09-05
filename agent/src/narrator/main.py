@@ -161,6 +161,14 @@ def resume_point(timings: Timings, position: float) -> float:
     return chunk_start(timings.chunk_timings, position)
 
 
+def resume_target(
+    timings: Timings, carried: dict | None, anchor: float, position: float
+) -> float:
+    if carried is not None and position == anchor:
+        return carried["end"]
+    return resume_point(timings, position)
+
+
 @server.rtc_session()
 async def entrypoint(ctx: JobContext) -> None:
     started = time.monotonic()
@@ -213,7 +221,8 @@ async def entrypoint(ctx: JobContext) -> None:
         elif action == "resume":
             paused.set()
         elif action == "seek":
-            discard_queued(source, player)
+            if playing.is_set():
+                discard_queued(source, player)
             player.seek(seconds_to_bytes(message["offset"]))
 
     @ctx.room.on("participant_disconnected")
@@ -284,6 +293,7 @@ async def entrypoint(ctx: JobContext) -> None:
             await announce(ctx, "listening")
 
             carried: dict | None = None
+            anchor = player.position
             while question := await next_question(questions, CLARIFY_WAIT_SECONDS):
                 asked = time.monotonic()
                 heard = heard_text(
@@ -303,8 +313,13 @@ async def entrypoint(ctx: JobContext) -> None:
                 answers += 1
                 spoken.append(answer)
                 logger.info(f"answering {answer!r}")
+                if session.phase is not Phase.ACTIVE:
+                    logger.info("answer abandoned")
+                    carried = None
+                    break
                 asked_again = answer.rstrip().endswith("?")
                 carried = None if asked_again else sentence_at(timings, player.position)
+                anchor = player.position
                 said = f"{answer} {carried['text']}" if carried else answer
                 await caption(ctx, said)
                 await announce(ctx, "speaking")
@@ -330,9 +345,7 @@ async def entrypoint(ctx: JobContext) -> None:
                 continue
 
             await asyncio.sleep(RESUME_BREATH_SECONDS)
-            target = (
-                carried["end"] if carried else resume_point(timings, player.position)
-            )
+            target = resume_target(timings, carried, anchor, player.position)
             player.seek(seconds_to_bytes(target - player.position))
             ramp.resume()
 
