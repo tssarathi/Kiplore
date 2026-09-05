@@ -43,16 +43,38 @@ def narrating(
     return session, player, paused
 
 
-def test_a_closed_tab_ends_the_story_but_a_dropped_connection_holds_it():
+def test_a_removed_listener_ends_the_story_but_a_dropped_connection_holds_it():
     async def scenario() -> None:
         session, _, _ = narrating(7.0)
-        session.dropped(LEAVE)
+        session.dropped(rtc.DisconnectReason.PARTICIPANT_REMOVED)
         assert session.phase is Phase.LEFT
 
         session, _, _ = narrating(7.0)
         session.dropped(DROP)
         assert session.phase is Phase.HELD
         session.close()
+
+    asyncio.run(scenario())
+
+
+def test_a_leave_is_held_briefly_because_a_failed_resume_sends_one_too(monkeypatch):
+    async def scenario() -> None:
+        monkeypatch.setattr(narrator.session, "LEAVE_GRACE_SECONDS", 0.05)
+        session, player, _ = narrating(7.0)
+        session.dropped(LEAVE)
+        assert session.phase is Phase.HELD, (
+            "a leave that precedes a reconnect ended the story"
+        )
+        session.rejoined()
+        assert session.report(1, 6.0, False) == 1
+        assert session.phase is Phase.ACTIVE
+        assert player.position == pytest.approx(6.0)
+        session.close()
+
+        session, _, _ = narrating(7.0)
+        session.dropped(LEAVE)
+        await asyncio.sleep(0.1)
+        assert session.phase is Phase.LEFT, "a closed tab never ended the story"
 
     asyncio.run(scenario())
 
@@ -144,5 +166,18 @@ def test_a_report_arriving_after_the_story_carried_on_is_acknowledged_only(monke
         assert session.report(1, 2.0, False) == 1
         assert player.position == pytest.approx(7.0)
         session.close()
+
+    asyncio.run(scenario())
+
+
+def test_a_departure_stops_an_answer_being_spoken():
+    async def scenario() -> None:
+        session, _, _ = narrating(7.0)
+        spoke = session._spoke
+        spoke.clear()
+        session.dropped(rtc.DisconnectReason.PARTICIPANT_REMOVED)
+
+        assert session.phase is Phase.LEFT
+        assert spoke.is_set(), "the answer kept playing to an empty room"
 
     asyncio.run(scenario())

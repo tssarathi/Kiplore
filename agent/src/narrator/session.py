@@ -7,6 +7,7 @@ from livekit import rtc
 
 from narrator.audio import seconds_to_bytes
 from narrator.config import (
+    LEAVE_GRACE_SECONDS,
     RECONNECT_GRACE_SECONDS,
     RESUME_REPORT_SECONDS,
 )
@@ -16,7 +17,6 @@ from narrator.player import Player
 
 CLEAN_LEAVES = frozenset(
     {
-        rtc.DisconnectReason.CLIENT_INITIATED,
         rtc.DisconnectReason.PARTICIPANT_REMOVED,
         rtc.DisconnectReason.ROOM_DELETED,
         rtc.DisconnectReason.ROOM_CLOSED,
@@ -67,8 +67,13 @@ class Session:
         if reason in CLEAN_LEAVES:
             self.left()
             return
+        grace = (
+            LEAVE_GRACE_SECONDS
+            if reason == rtc.DisconnectReason.CLIENT_INITIATED
+            else RECONNECT_GRACE_SECONDS
+        )
         if self.phase is Phase.HELD:
-            self._arm(RECONNECT_GRACE_SECONDS, self.left)
+            self._arm(grace, self.left)
             return
 
         queued = self._source.queued_duration if self._playing.is_set() else 0.0
@@ -78,13 +83,12 @@ class Session:
         self._player.seek(-seconds_to_bytes(queued))
         self._held = self._player.position
         self._resumed = False
-        self._arm(RECONNECT_GRACE_SECONDS, self.left)
+        self._arm(grace, self.left)
         self._enter(Phase.HELD)
         self._wake()
         name = rtc.DisconnectReason.Name(reason) if reason is not None else "unknown"
         logger.info(
-            f"listener dropped, holding {RECONNECT_GRACE_SECONDS}s "
-            f"at {self._held:.1f} reason={name}"
+            f"listener dropped, holding {grace}s at {self._held:.1f} reason={name}"
         )
 
     def rejoined(self) -> None:
@@ -130,6 +134,7 @@ class Session:
             return
         self._disarm()
         self._playing.clear()
+        self._spoke.set()
         self._enter(Phase.LEFT)
         self._wake()
         logger.info("listener gone")
