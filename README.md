@@ -52,7 +52,7 @@ voice, and playback resumes from the start of the interrupted sentence.
 
 ## Getting started
 
-Requires Python 3.13 with [uv](https://docs.astral.sh/uv/), Node.js 20, and accounts for
+Requires Python 3.13 with [uv](https://docs.astral.sh/uv/), Node.js 24, and accounts for
 LiveKit, ElevenLabs, Deepgram, OpenAI and Cloudflare R2.
 
 | Variable | Required by | Purpose |
