@@ -18,9 +18,6 @@ class Player:
     def append(self, pcm: bytes) -> None:
         self._buffer += pcm
 
-    def finish(self) -> None:
-        self.finished = True
-
     def seek(self, size: int) -> None:
         self._cursor = min(max(0, self._cursor + size), len(self._buffer))
 

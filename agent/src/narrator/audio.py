@@ -6,17 +6,14 @@ from livekit.agents import JobContext
 
 from narrator.config import (
     CHUNK_SECONDS,
-    FRAME_SAMPLES,
-    NUM_CHANNELS,
     PAUSE_FADE_SECONDS,
-    RESUME_FADE_FROM,
-    RESUME_FADE_SECONDS,
     SAMPLE_RATE,
     SOURCE_QUEUE_MS,
 )
 from narrator.envelope import GainRamp, scale
 from narrator.player import Player
 
+FRAME_SAMPLES = int(SAMPLE_RATE * CHUNK_SECONDS)
 FRAME_BYTES = FRAME_SAMPLES * 2
 
 
@@ -32,7 +29,7 @@ def discard_queued(source: rtc.AudioSource, player: Player) -> float:
 
 
 async def publish_voice(ctx: JobContext) -> rtc.AudioSource:
-    source = rtc.AudioSource(SAMPLE_RATE, NUM_CHANNELS, queue_size_ms=SOURCE_QUEUE_MS)
+    source = rtc.AudioSource(SAMPLE_RATE, 1, queue_size_ms=SOURCE_QUEUE_MS)
     track = rtc.LocalAudioTrack.create_audio_track("narrator-voice", source)
     await ctx.room.local_participant.publish_track(
         track, rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE)
@@ -41,17 +38,11 @@ async def publish_voice(ctx: JobContext) -> rtc.AudioSource:
 
 
 def frame(pcm: bytes) -> rtc.AudioFrame:
-    return rtc.AudioFrame(pcm, SAMPLE_RATE, NUM_CHANNELS, FRAME_SAMPLES)
+    return rtc.AudioFrame(pcm, SAMPLE_RATE, 1, FRAME_SAMPLES)
 
 
 async def once(pcm: bytes) -> AsyncIterator[bytes]:
     yield pcm
-
-
-async def fill(player: Player, chunks: AsyncIterator[bytes]) -> None:
-    async for chunk in chunks:
-        player.append(chunk)
-    player.finish()
 
 
 async def play(
@@ -74,8 +65,7 @@ async def play(
                 await asyncio.sleep(CHUNK_SECONDS)
             if not playing.is_set():
                 return
-            ramp.snap(RESUME_FADE_FROM)
-            ramp.set(1.0, RESUME_FADE_SECONDS)
+            ramp.resume()
         pcm = player.read(FRAME_BYTES)
         if pcm is None:
             if player.finished:

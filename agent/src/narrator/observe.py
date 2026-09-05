@@ -29,7 +29,7 @@ def setup() -> None:
     logger.propagate = False
 
 
-def event(logger: logging.Logger, message: str, **fields: object) -> None:
+def event(message: str, **fields: object) -> None:
     logger.info(message, extra={"fields": fields})
 
 

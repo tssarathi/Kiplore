@@ -1,6 +1,5 @@
 import array
 import asyncio
-import logging
 import math
 import time
 
@@ -26,8 +25,7 @@ from narrator.config import (
     EOT_THRESHOLD,
 )
 from narrator.envelope import GainRamp
-
-logger = logging.getLogger("narrator")
+from narrator.observe import logger
 
 MIC_FRAME_CAPACITY = 100
 
@@ -39,6 +37,7 @@ class Listener:
         room: rtc.Room,
         identity: str,
         playing: asyncio.Event,
+        paused: asyncio.Event,
         spoke: asyncio.Event,
         questions: asyncio.Queue[str | None],
         ramp: GainRamp,
@@ -50,6 +49,7 @@ class Listener:
         self._room = room
         self._identity = identity
         self._playing = playing
+        self._paused = paused
         self._spoke = spoke
         self._questions = questions
         self._ramp = ramp
@@ -59,18 +59,22 @@ class Listener:
         self._ducked = False
         self._segment = shortuuid("SG_")
         self._captions: asyncio.Queue[tuple[str, str, bool]] = asyncio.Queue()
+        self._microphone: asyncio.Task[None] | None = None
         self._tasks: list[asyncio.Task[None]] = [
             asyncio.create_task(self._read()),
             asyncio.create_task(self._publish()),
         ]
 
     def add_microphone(self, track: rtc.Track) -> None:
-        self._tasks.append(asyncio.create_task(self._forward(track)))
+        if self._microphone is not None:
+            self._microphone.cancel()
+        self._microphone = asyncio.create_task(self._forward(track))
 
     async def aclose(self) -> None:
-        for task in self._tasks:
+        tasks = [*self._tasks, *([self._microphone] if self._microphone else [])]
+        for task in tasks:
             task.cancel()
-        await asyncio.gather(*self._tasks, return_exceptions=True)
+        await asyncio.gather(*tasks, return_exceptions=True)
         await self._stream.aclose()
         await self._stt.aclose()
 
@@ -82,9 +86,14 @@ class Listener:
         )
         try:
             async for event in stream:
+                if not self._paused.is_set():
+                    self._loud, self._quiet, self._ducked = 0, 0.0, False
+                    continue
                 self._gate(event.frame)
                 self._stream.push_frame(event.frame)
         finally:
+            self._loud, self._quiet = 0, 0.0
+            self._unduck()
             await stream.aclose()
 
     def _gate(self, frame: rtc.AudioFrame) -> None:
@@ -146,7 +155,6 @@ class Listener:
                     if self._playing.is_set():
                         self._playing.clear()
                         observe.event(
-                            logger,
                             "narration stopped",
                             seconds=observe.since(self._ducked_at)
                             if self._ducked_at

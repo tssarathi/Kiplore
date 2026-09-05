@@ -31,7 +31,7 @@ def test_setup_leaves_info_lines_actually_reaching_the_handler():
         handler = logger.handlers[0]
         assert isinstance(handler, logging.StreamHandler)
         handler.setStream(stream)
-        event(logger, "first audio", seconds=2.317)
+        event("first audio", seconds=2.317)
         written = stream.getvalue()
     finally:
         logger.handlers[:], logger.level, logger.propagate = before

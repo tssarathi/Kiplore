@@ -1,7 +1,8 @@
 import asyncio
+import contextlib
 import itertools
 import json
-import logging
+import math
 import time
 from collections.abc import AsyncIterator
 
@@ -27,7 +28,6 @@ from narrator.alignment import (
 from narrator.answer import shape, write_answer
 from narrator.audio import (
     discard_queued,
-    fill,
     once,
     play,
     publish_voice,
@@ -38,29 +38,51 @@ from narrator.config import (
     ANSWER_FALLBACK,
     CLARIFY_WAIT_SECONDS,
     RESUME_BREATH_SECONDS,
-    RESUME_FADE_FROM,
-    RESUME_FADE_SECONDS,
 )
 from narrator.content import load_story, load_voice
 from narrator.envelope import GainRamp
 from narrator.listen import Listener
+from narrator.observe import logger
 from narrator.player import Player
 from narrator.render import Narration, stream_answer
 from narrator.session import Phase, Session
 
 load_dotenv()
-logger = logging.getLogger("narrator")
 
 server = AgentServer(num_idle_processes=1)
+
+
+ACTIONS = frozenset({"pause", "resume", "seek", "resume-at"})
+
+
+def control(payload: bytes) -> dict | None:
+    try:
+        message = json.loads(payload)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(message, dict) or message.get("action") not in ACTIONS:
+        return None
+    if message["action"] == "seek":
+        offset = message.get("offset")
+        if not isinstance(offset, (int, float)) or isinstance(offset, bool):
+            return None
+        if not math.isfinite(offset):
+            return None
+    return message
+
+
+def sentence_at(timings: Timings, position: float) -> dict | None:
+    segment = segment_at(timings.segments, position)
+    if segment is not None and position >= segment["end"]:
+        return None
+    return segment
 
 
 async def broadcast(
     ctx: JobContext, player: Player, timings: Timings, paused: asyncio.Event
 ) -> None:
     for seq in itertools.count(1):
-        segment = segment_at(timings.segments, player.position)
-        if segment is not None and player.position >= segment["end"]:
-            segment = None
+        segment = sentence_at(timings, player.position)
         payload = json.dumps(
             {
                 "seq": seq,
@@ -72,19 +94,23 @@ async def broadcast(
                 "caption": segment["text"] if segment is not None else None,
             }
         )
-        await ctx.room.local_participant.publish_data(payload, reliable=False)
+        try:
+            await ctx.room.local_participant.publish_data(payload, reliable=False)
+        except Exception:
+            logger.warning("state broadcast failed")
         await asyncio.sleep(1)
 
 
 async def announce(ctx: JobContext, state: str) -> None:
-    await ctx.room.local_participant.set_attributes({ATTRIBUTE_AGENT_STATE: state})
+    try:
+        await ctx.room.local_participant.set_attributes({ATTRIBUTE_AGENT_STATE: state})
+    except Exception:
+        logger.warning(f"could not announce {state}")
 
 
 async def next_question(
-    questions: asyncio.Queue[str | None], within: float | None
+    questions: asyncio.Queue[str | None], within: float
 ) -> str | None:
-    if within is None:
-        return await questions.get()
     try:
         return await asyncio.wait_for(questions.get(), within)
     except TimeoutError:
@@ -92,30 +118,34 @@ async def next_question(
 
 
 async def caption(ctx: JobContext, text: str) -> None:
-    writer = await ctx.room.local_participant.stream_text(
-        topic=TOPIC_TRANSCRIPTION,
-        attributes={
-            ATTRIBUTE_TRANSCRIPTION_SEGMENT_ID: shortuuid("SG_"),
-            ATTRIBUTE_TRANSCRIPTION_FINAL: "true",
-        },
-    )
-    await writer.write(text)
-    await writer.aclose()
+    try:
+        writer = await ctx.room.local_participant.stream_text(
+            topic=TOPIC_TRANSCRIPTION,
+            attributes={
+                ATTRIBUTE_TRANSCRIPTION_SEGMENT_ID: shortuuid("SG_"),
+                ATTRIBUTE_TRANSCRIPTION_FINAL: "true",
+            },
+        )
+        await writer.write(text)
+        await writer.aclose()
+    except Exception:
+        logger.warning("could not caption the answer")
 
 
-async def timed(chunks: AsyncIterator[bytes], started: float) -> AsyncIterator[bytes]:
+async def fill(player: Player, chunks: AsyncIterator[bytes], started: float) -> None:
     first = True
     async for chunk in chunks:
         if first:
-            observe.event(logger, "first audio", seconds=observe.since(started))
+            observe.event("first audio", seconds=observe.since(started))
             first = False
-        yield chunk
+        player.append(chunk)
+    player.finished = True
 
 
 def resume_point(timings: Timings, position: float) -> float:
     segment = segment_at(timings.segments, position)
     if segment is not None:
-        return segment["start"]
+        return segment["start"] if position < segment["end"] else segment["end"]
     return chunk_start(timings.chunk_timings, position)
 
 
@@ -134,10 +164,10 @@ async def entrypoint(ctx: JobContext) -> None:
     acks: set[asyncio.Task[None]] = set()
     spoken: list[str] = []
 
-    await ctx.connect()
-
     observe.setup()
-    observe.session.set(ctx.room.name)
+    observe.session.set(ctx.job.room.name)
+
+    await ctx.connect()
     source = await publish_voice(ctx)
     session = Session(source, player, playing, paused, spoke, questions, ramp)
 
@@ -151,11 +181,16 @@ async def entrypoint(ctx: JobContext) -> None:
 
     @ctx.room.on("data_received")
     def on_control(packet: rtc.DataPacket) -> None:
-        control = json.loads(packet.data)
-        logger.info(f"control {control}")
-        action = control["action"]
+        message = control(packet.data)
+        if message is None:
+            logger.warning("control packet refused")
+            return
+        logger.info(f"control {message}")
+        action = message["action"]
         if action == "resume-at":
-            seq = session.report(control["seq"], control["position"], control["paused"])
+            seq = session.report(
+                message.get("seq"), message.get("position"), message.get("paused")
+            )
             if seq is not None:
                 publish_ack(seq)
             return
@@ -166,7 +201,8 @@ async def entrypoint(ctx: JobContext) -> None:
         elif action == "resume":
             paused.set()
         elif action == "seek":
-            player.seek(seconds_to_bytes(control["offset"]))
+            discard_queued(source, player)
+            player.seek(seconds_to_bytes(message["offset"]))
 
     @ctx.room.on("participant_disconnected")
     def on_participant_disconnected(participant: rtc.RemoteParticipant) -> None:
@@ -185,14 +221,6 @@ async def entrypoint(ctx: JobContext) -> None:
         f"listener={listener.identity} story={story['title']!r} voice={voice['name']}"
     )
 
-    ears = Listener(
-        story["script"], ctx.room, listener.identity, playing, spoke, questions, ramp
-    )
-    ctx.room.on("track_subscribed", lambda track, *_: ears.add_microphone(track))
-    for publication in listener.track_publications.values():
-        if publication.track is not None:
-            ears.add_microphone(publication.track)
-
     render = cache.render_id(story, voice["elevenLabsId"])
     at = cache.prefix(
         request["collection"], request["storyId"], request["voiceId"], render
@@ -207,7 +235,22 @@ async def entrypoint(ctx: JobContext) -> None:
         chunks = once(pcm)
         logger.info(f"narrating from cache at={at}")
 
-    producer = asyncio.create_task(fill(player, timed(chunks, started)))
+    ears = Listener(
+        story["script"],
+        ctx.room,
+        listener.identity,
+        playing,
+        paused,
+        spoke,
+        questions,
+        ramp,
+    )
+    ctx.room.on("track_subscribed", lambda track, *_: ears.add_microphone(track))
+    for publication in listener.track_publications.values():
+        if publication.track is not None:
+            ears.add_microphone(publication.track)
+
+    producer = asyncio.create_task(fill(player, chunks, started))
     broadcaster = asyncio.create_task(broadcast(ctx, player, timings, paused))
 
     try:
@@ -225,9 +268,8 @@ async def entrypoint(ctx: JobContext) -> None:
             )
             await announce(ctx, "listening")
 
-            waiting: float | None = None
             carried: dict | None = None
-            while question := await next_question(questions, waiting):
+            while question := await next_question(questions, CLARIFY_WAIT_SECONDS):
                 asked = time.monotonic()
                 heard = heard_text(
                     story["script"],
@@ -247,29 +289,28 @@ async def entrypoint(ctx: JobContext) -> None:
                 spoken.append(answer)
                 logger.info(f"answering {answer!r}")
                 asked_again = answer.rstrip().endswith("?")
-                carried = (
-                    None
-                    if asked_again
-                    else segment_at(timings.segments, player.position)
-                )
+                carried = None if asked_again else sentence_at(timings, player.position)
                 said = f"{answer} {carried['text']}" if carried else answer
                 await caption(ctx, said)
                 await announce(ctx, "speaking")
-                observe.event(logger, "answered", seconds=observe.since(asked))
-                replied = await speak_reply(
-                    source, stream_answer(said, voice["elevenLabsId"]), spoke
-                )
+                observe.event("answered", seconds=observe.since(asked))
+                try:
+                    replied = await speak_reply(
+                        source, stream_answer(said, voice["elevenLabsId"]), spoke
+                    )
+                except Exception:
+                    logger.exception("answer synthesis failed")
+                    carried = None
+                    break
                 if not replied:
                     carried = None
                     logger.info("answer interrupted")
                     await announce(ctx, "listening")
-                    waiting = None
                     continue
                 if not asked_again:
                     break
                 logger.info("asked again, waiting for the child")
                 await announce(ctx, "listening")
-                waiting = CLARIFY_WAIT_SECONDS
             if question is None:
                 continue
 
@@ -278,14 +319,15 @@ async def entrypoint(ctx: JobContext) -> None:
                 carried["end"] if carried else resume_point(timings, player.position)
             )
             player.seek(seconds_to_bytes(target - player.position))
-            ramp.snap(RESUME_FADE_FROM)
-            ramp.set(1.0, RESUME_FADE_SECONDS)
+            ramp.resume()
 
         if session.phase is not Phase.LEFT:
             await producer
             logger.info("story finished")
     finally:
         session.close()
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(source.wait_for_playout(), 2.0)
         complete = producer.done() and not producer.cancelled()
         failure = producer.exception() if complete else None
         producer.cancel()
@@ -307,7 +349,6 @@ async def entrypoint(ctx: JobContext) -> None:
                 else:
                     logger.warning(f"render not cached at={at} reason={reason}")
         observe.event(
-            logger,
             "session complete",
             seconds=observe.since(started),
             position=round(player.position, 1),
