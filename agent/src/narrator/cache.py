@@ -1,7 +1,6 @@
 import asyncio
 import hashlib
 import json
-import logging
 import os
 
 import boto3
@@ -21,8 +20,7 @@ from narrator.config import (
     SEED,
     VOICE_SETTINGS,
 )
-
-logger = logging.getLogger("narrator")
+from narrator.observe import logger
 
 REMOTE_ERRORS = (ClientError, BotoCoreError, OSError)
 TIMINGS = "timings.json"
@@ -139,5 +137,5 @@ def _save(at: str, pcm: bytes, timings: Timings, spoken: str) -> str | None:
 async def save(at: str, pcm: bytes, timings: Timings, spoken: str) -> str | None:
     try:
         return await asyncio.to_thread(_save, at, pcm, timings, spoken)
-    except REMOTE_ERRORS as error:
+    except (*REMOTE_ERRORS, ValueError, KeyError) as error:
         return f"upload failed: {error}"
