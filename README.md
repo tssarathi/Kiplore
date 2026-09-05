@@ -129,7 +129,7 @@ endpoint returns 403 outside development.
 
 ## Licence
 
-[PolyForm Noncommercial 1.0.0](LICENSE), SPDX `PolyForm-Noncommercial-1.0.0`.
+[PolyForm Noncommercial 1.0.0](LICENSE.md), SPDX `PolyForm-Noncommercial-1.0.0`.
 Copyright 2026 Sarathi Thirumalai Soundararajan.
 
 Read it, study it, run it for yourself. Any commercial use needs a separate
